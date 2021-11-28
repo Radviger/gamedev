@@ -23,8 +23,8 @@ fn main() {
     let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &event_loop).unwrap();
 
-    let vertex = include_str!("triangle.vert");
-    let fragment = include_str!("triangle.frag");
+    let vertex = include_str!("shaders/triangle.vert");
+    let fragment = include_str!("shaders/triangle.frag");
     let program = Program::from_source(&display, vertex, fragment, None).unwrap();
 
     let (vertices, indices) = triangle(&display);
