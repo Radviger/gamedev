@@ -9,7 +9,6 @@ use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
 
-use crate::MouseScrollDelta::LineDelta;
 use crate::window::{Context, Handler};
 
 mod window;
@@ -57,7 +56,8 @@ struct WindowHandler;
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, frame: &mut Frame, time_elapsed: f32) {
         let view = cgmath::ortho(0.0, context.width, context.height, 0.0, -1.0, 1.0);
-        let model = Matrix4::from_translation(vec3(context.width / 2.0, context.height / 2.0, 0.0))
+        let center = vec3(context.width / 2.0, context.height / 2.0, 0.0);
+        let model = Matrix4::from_translation(center)
             * Matrix4::from_scale(context.scale)
             * Matrix4::from_angle_z(Deg(context.angle));
 
@@ -85,8 +85,8 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
-            LineDelta(x, y) => {
-                if modifiers.contains(ModifiersState::SHIFT) {
+            MouseScrollDelta::LineDelta(x, y) => {
+                if modifiers.shift() {
                     context.angle += 10.0 * y;
                 } else {
                     context.scale += 10.0 * y;
