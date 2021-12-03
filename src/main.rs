@@ -98,7 +98,7 @@ impl Handler<WindowContext> for WindowHandler {
 }
 
 fn main() {
-    window::create("Разработка игр", LogicalSize::new(800, 800), 24, WindowHandler);
+    window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
 }
 
 fn triangle(display: &Display) -> (VertexBuffer<Vertex>, IndexBuffer<u16>) {
