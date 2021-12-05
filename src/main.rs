@@ -1,16 +1,17 @@
 use std::f32::consts::TAU;
 
 use cgmath::{Angle, Deg, Matrix4, vec3};
-use glium::{Blend, Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, uniform, VertexBuffer};
+use glium::{Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, uniform, VertexBuffer};
 use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{KeyboardInput, ModifiersState, MouseScrollDelta, StartCause};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
+
 use msgbox::IconType;
 
-use crate::window::{Context, create, Handler};
+use crate::window::{Context, Handler};
 
 mod window;
 
@@ -40,7 +41,7 @@ fn compile_program(display: &Display, vertex: &str, fragment: &str, geometry: Op
             match e {
                 ProgramCreationError::CompilationError(message, shader) => {
                     let message = format!("Error compiling {:?} Shader from source:\n\n{}", shader, message);
-                    msgbox::create("Shader compilation error", &message, IconType::Error);
+                    msgbox::create("Shader compilation error", &message, IconType::Error).unwrap();
                     Err(ProgramCreationError::CompilationError(message, shader)).unwrap()
                 }
                 other => {
@@ -93,13 +94,6 @@ impl Handler<WindowContext> for WindowHandler {
             time: time_elapsed
         };
         let params = DrawParameters {
-            line_width: Some(15.0),
-            blend: Blend::alpha_blending(),
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                .. Default::default()
-            },
             ..Default::default()
         };
 
