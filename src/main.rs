@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 
 use cgmath::{Angle, Deg, Matrix4, vec3};
-use glium::{Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, uniform, VertexBuffer};
+use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, uniform, VertexBuffer};
 use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{KeyboardInput, ModifiersState, MouseScrollDelta, StartCause};
@@ -80,8 +80,9 @@ struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, frame: &mut Frame, time_elapsed: f32) {
-        let view = cgmath::ortho(0.0, context.width, context.height, 0.0, -1024.0, 1024.0);
-        let center = vec3(context.width / 2.0, context.height / 2.0, 0.0);
+        let view = cgmath::perspective(Deg(70.0), 1.0, 0.1, 1024.0) *
+            cgmath::ortho(0.0, context.width, context.height, 0.0, -1024.0, 1024.0);
+        let center = vec3(context.width / 2.0, context.height / 2.0, 512.0);
         let model = Matrix4::from_translation(center)
             * Matrix4::from_scale(context.scale)
             * Matrix4::from_angle_y(Deg(context.angle_y))
@@ -94,6 +95,12 @@ impl Handler<WindowContext> for WindowHandler {
             time: time_elapsed
         };
         let params = DrawParameters {
+            depth: Depth {
+                test: DepthTest::IfLess,
+                write: true,
+                ..Default::default()
+            },
+            multisampling: true,
             ..Default::default()
         };
 
