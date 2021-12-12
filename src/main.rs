@@ -1,13 +1,17 @@
 use std::f32::consts::TAU;
+use std::path::Path;
+use std::sync::Arc;
 
 use cgmath::{Angle, Deg, Matrix4, vec3};
-use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, uniform, VertexBuffer};
+use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, Texture2d, uniform, VertexBuffer};
 use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
-use glium::glutin::event::{KeyboardInput, ModifiersState, MouseScrollDelta, StartCause};
+use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseScrollDelta, StartCause, VirtualKeyCode};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
+use glium::texture::RawImage2d;
+use image::GenericImageView;
 
 use msgbox::IconType;
 
@@ -32,6 +36,8 @@ struct WindowContext {
     angle_x: f32,
     width: f32,
     height: f32,
+    color: [f32; 3],
+    texture: Arc<Texture2d>
 }
 
 fn compile_program(display: &Display, vertex: &str, fragment: &str, geometry: Option<&str>) -> Program {
@@ -61,6 +67,8 @@ impl Context for WindowContext {
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
+        let texture = load_texture(display, "resources/bricks.jpg");
+
         let (vertices, indices) = cube(display);
         let indices = IndexBuffer::new(display, PrimitiveType::TrianglesList, &indices).unwrap();
         Self {
@@ -72,6 +80,8 @@ impl Context for WindowContext {
             angle_x: 0.0,
             width: size.width,
             height: size.height,
+            color: [1.0, 0.0, 0.0],
+            texture
         }
     }
 }
@@ -92,7 +102,8 @@ impl Handler<WindowContext> for WindowHandler {
 
         let data = uniform! {
             matrix: matrix,
-            time: time_elapsed
+            time: time_elapsed,
+            tex: context.texture.sampled()
         };
         let params = DrawParameters {
             depth: Depth {
@@ -126,6 +137,14 @@ impl Handler<WindowContext> for WindowHandler {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput) {
+        if let Some(key) = input.virtual_keycode {
+            if key == VirtualKeyCode::Return && input.state == ElementState::Pressed {
+                println!("Pressed enter!");
+            }
         }
     }
 }
@@ -209,4 +228,12 @@ fn cube(display: &Display) -> (VertexBuffer<Vertex>, Vec<u16>) {
         }
     }
     (vertices, indices)
+}
+
+fn load_texture<N>(display: &Display, name: N) -> Arc<Texture2d> where N: AsRef<Path> {
+    let image = image::open(name).expect("unable to open image");
+    let size = image.dimensions();
+    let raw = RawImage2d::from_raw_rgba_reversed(&image.into_rgba8(), size);
+    let texture = Texture2d::new(display, raw).expect("failed to allocate texture");
+    Arc::new(texture)
 }
