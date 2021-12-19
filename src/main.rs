@@ -1,31 +1,22 @@
-use std::f32::consts::TAU;
-use std::path::Path;
 use std::sync::Arc;
 
-use cgmath::{Angle, Deg, Matrix4, vec3};
-use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, ProgramCreationError, Surface, Texture2d, uniform, VertexBuffer};
+use cgmath::{Deg, Matrix4, vec3};
+use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
 use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseScrollDelta, StartCause, VirtualKeyCode};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
-use glium::texture::RawImage2d;
-use image::GenericImageView;
+use glium::uniforms::MagnifySamplerFilter;
 
-use msgbox::IconType;
-
+use crate::shapes::Vertex;
 use crate::window::{Context, Handler};
 
 mod window;
-
-#[derive(Copy, Clone, glium_derive::Vertex)]
-pub struct Vertex {
-    pos: [f32; 3],
-    color: [f32; 4],
-    normal: [f32; 3],
-    uv: [f32; 2]
-}
+mod shaders;
+mod shapes;
+mod textures;
 
 struct WindowContext {
     program: Program,
@@ -37,39 +28,21 @@ struct WindowContext {
     width: f32,
     height: f32,
     color: [f32; 3],
-    texture: Arc<Texture2d>
-}
-
-fn compile_program(display: &Display, vertex: &str, fragment: &str, geometry: Option<&str>) -> Program {
-    match Program::from_source(display, vertex, fragment, geometry) {
-        Ok(program) => program,
-        Err(e) => {
-            match e {
-                ProgramCreationError::CompilationError(message, shader) => {
-                    let message = format!("Error compiling {:?} Shader from source:\n\n{}", shader, message);
-                    msgbox::create("Shader compilation error", &message, IconType::Error).unwrap();
-                    Err(ProgramCreationError::CompilationError(message, shader)).unwrap()
-                }
-                other => {
-                    Err(other).unwrap()
-                }
-            }
-        }
-    }
+    texture: Arc<Texture2d>,
 }
 
 impl Context for WindowContext {
     fn new(display: &Display) -> Self {
-        let vertex = include_str!("shaders/flat.vert");
-        let fragment = include_str!("shaders/flat.frag");
-        let program = compile_program(display, vertex, fragment, None);
+        let vertex = include_str!("../resources/shaders/flat.vert");
+        let fragment = include_str!("../resources/shaders/flat.frag");
+        let program = shaders::compile(display, vertex, fragment, None);
 
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
-        let texture = load_texture(display, "resources/bricks.jpg");
+        let texture = textures::load(display, "resources/bricks.jpg");
 
-        let (vertices, indices) = cube(display);
+        let (vertices, indices) = shapes::cube(display);
         let indices = IndexBuffer::new(display, PrimitiveType::TrianglesList, &indices).unwrap();
         Self {
             program,
@@ -81,7 +54,7 @@ impl Context for WindowContext {
             width: size.width,
             height: size.height,
             color: [1.0, 0.0, 0.0],
-            texture
+            texture,
         }
     }
 }
@@ -98,12 +71,12 @@ impl Handler<WindowContext> for WindowHandler {
             * Matrix4::from_angle_y(Deg(context.angle_y))
             * Matrix4::from_angle_x(Deg(context.angle_x));
 
-        let matrix: [[f32;4];4] = (view * model).into();
+        let matrix: [[f32; 4]; 4] = (view * model).into();
 
         let data = uniform! {
             matrix: matrix,
             time: time_elapsed,
-            tex: context.texture.sampled()
+            tex: context.texture.sampled().magnify_filter(MagnifySamplerFilter::Nearest)
         };
         let params = DrawParameters {
             depth: Depth {
@@ -127,7 +100,7 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
-            MouseScrollDelta::LineDelta(x, y) => {
+            MouseScrollDelta::LineDelta(_, y) => {
                 if modifiers.ctrl() {
                     context.scale += 10.0 * y;
                 } else if modifiers.shift() {
@@ -151,89 +124,4 @@ impl Handler<WindowContext> for WindowHandler {
 
 fn main() {
     window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
-}
-
-fn triangle(display: &Display) -> (VertexBuffer<Vertex>, Vec<u16>) {
-    let vertices = VertexBuffer::new(display, &[
-        Vertex { pos: [-1.0, -1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 0.0] },
-        Vertex { pos: [-1.0,  1.0, 0.0], color: [0.0, 1.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 1.0] },
-        Vertex { pos: [ 1.0,  1.0, 0.0], color: [0.0, 0.0, 1.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [1.0, 0.0] },
-    ]).unwrap();
-    let indices = vec![0, 1, 2];
-    (vertices, indices)
-}
-
-fn square(display: &Display) -> (VertexBuffer<Vertex>, Vec<u16>) {
-    let vertices = VertexBuffer::new(display, &[
-        Vertex { pos: [-1.0, -1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 0.0] },
-        Vertex { pos: [-1.0,  1.0, 0.0], color: [0.0, 1.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 1.0] },
-        Vertex { pos: [ 1.0,  1.0, 0.0], color: [0.0, 0.0, 1.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [1.0, 1.0] },
-        Vertex { pos: [ 1.0, -1.0, 0.0], color: [0.0, 0.0, 0.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [1.0, 0.0] }
-    ]).unwrap();
-    let indices = vec![0, 1, 2, 3];
-    (vertices, indices)
-}
-
-fn circle(display: &Display) -> (VertexBuffer<Vertex>, Vec<u16>) {
-    let mut vertices = Vec::with_capacity(360);
-    let mut indices = Vec::with_capacity(360);
-    for i in 0..360 {
-        let angle = Deg(i as f32);
-        let x = angle.cos();
-        let y = angle.sin();
-        vertices.push(Vertex { pos: [x, y, 0.0], color: [1.0, 1.0, 1.0, 1.0], normal: [1.0, 0.0, 0.0], uv: [(x + 1.0) / 2.0, (y + 1.0) / 2.0] });
-        indices.push(i as u16);
-    }
-    let vertices = VertexBuffer::new(display, &vertices).unwrap();
-    (vertices, indices)
-}
-
-fn cube(display: &Display) -> (VertexBuffer<Vertex>, Vec<u16>) {
-    let vertices = VertexBuffer::new(display, &[
-        // Max X
-        Vertex { pos: [ 0.5, -0.5, -0.5], normal: [1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5, -0.5,  0.5], normal: [1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5,  0.5], normal: [1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5, -0.5], normal: [1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        // Min X
-        Vertex { pos: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        // Max Y
-        Vertex { pos: [-0.5,  0.5, -0.5], normal: [0.0,  1.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5, -0.5], normal: [0.0,  1.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5,  0.5], normal: [0.0,  1.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5,  0.5,  0.5], normal: [0.0,  1.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        // Min Y
-        Vertex { pos: [-0.5, -0.5, -0.5], normal: [0.0, -1.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5, -0.5,  0.5], normal: [0.0, -1.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        // Max Z
-        Vertex { pos: [-0.5, -0.5,  0.5], normal: [0.0,  0.0,  1.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5,  0.5,  0.5], normal: [0.0,  0.0,  1.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5,  0.5], normal: [0.0,  0.0,  1.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5, -0.5,  0.5], normal: [0.0,  0.0,  1.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        // Min Z
-        Vertex { pos: [-0.5, -0.5, -0.5], normal: [0.0,  0.0, -1.0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5, -0.5, -0.5], normal: [0.0,  0.0, -1.0], uv: [1.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [ 0.5,  0.5, -0.5], normal: [0.0,  0.0, -1.0], uv: [1.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-        Vertex { pos: [-0.5,  0.5, -0.5], normal: [0.0,  0.0, -1.0], uv: [0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-    ]).unwrap();
-    let mut indices = Vec::new();
-    for face in 0..6u16 {
-        for i in &[0, 1, 2, 0, 2, 3] {
-            indices.push(4 * face + *i);
-        }
-    }
-    (vertices, indices)
-}
-
-fn load_texture<N>(display: &Display, name: N) -> Arc<Texture2d> where N: AsRef<Path> {
-    let image = image::open(name).expect("unable to open image");
-    let size = image.dimensions();
-    let raw = RawImage2d::from_raw_rgba_reversed(&image.into_rgba8(), size);
-    let texture = Texture2d::new(display, raw).expect("failed to allocate texture");
-    Arc::new(texture)
 }
