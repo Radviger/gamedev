@@ -8,6 +8,7 @@ use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseScr
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
+use glium::texture::SrgbTexture2d;
 use glium::uniforms::MagnifySamplerFilter;
 
 use crate::shapes::Vertex;
@@ -28,7 +29,7 @@ struct WindowContext {
     width: f32,
     height: f32,
     color: [f32; 3],
-    texture: Arc<Texture2d>,
+    texture: Arc<SrgbTexture2d>,
 }
 
 impl Context for WindowContext {
