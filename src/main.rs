@@ -34,8 +34,8 @@ struct WindowContext {
 
 impl Context for WindowContext {
     fn new(display: &Display) -> Self {
-        let vertex = include_str!("../resources/shaders/flat.vert");
-        let fragment = include_str!("../resources/shaders/flat.frag");
+        let vertex = include_str!("../resources/shaders/simple.vert");
+        let fragment = include_str!("../resources/shaders/simple.frag");
         let program = shaders::compile(display, vertex, fragment, None);
 
         let dpi = display.gl_window().window().scale_factor();
