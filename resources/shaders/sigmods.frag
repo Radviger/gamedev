@@ -1,12 +1,13 @@
 #version 150
 
 const float pi = 3.14159;
-const vec2 resolution = vec2(400.0, 400.0);
 
 in vec3 v_pos;
 out vec4 color;
 
 uniform float time;
+uniform float width;
+uniform float heigth;
 
 float sigmoid(float x){
     return x/(1.+abs(x));
@@ -92,8 +93,8 @@ vec3 scene(float gt, vec2 uv, vec4 a0, vec4 wt0, vec4 ws0, float blur){
 }
 
 void main() {
-    float s = min(resolution.x, resolution.y);
-    vec2 uv = (2.*v_pos.xy - vec2(resolution.xy)) / s;
+    float s = min(width, heigth);
+    vec2 uv = (2.*v_pos.xy - vec2(0.5));
 
     float blur = .5*(uv.x*uv.x+uv.y*uv.y);
 
