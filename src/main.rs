@@ -43,8 +43,8 @@ impl Context for WindowContext {
 
         let texture = textures::load(display, "resources/bricks.jpg");
 
-        let (vertices, indices) = shapes::cube(display);
-        let indices = IndexBuffer::new(display, PrimitiveType::TrianglesList, &indices).unwrap();
+        let (vertices, indices) = shapes::square(display);
+        let indices = IndexBuffer::new(display, PrimitiveType::TriangleFan, &indices).unwrap();
         Self {
             program,
             vertices,
@@ -64,13 +64,10 @@ struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, frame: &mut Frame, time_elapsed: f32) {
-        let view = cgmath::perspective(Deg(70.0), 1.0, 0.1, 1024.0) *
-            cgmath::ortho(0.0, context.width, context.height, 0.0, -1024.0, 1024.0);
+        let view = cgmath::ortho(0.0, context.width, context.height, 0.0, -1024.0, 1024.0);
         let center = vec3(context.width / 2.0, context.height / 2.0, 512.0);
         let model = Matrix4::from_translation(center)
-            * Matrix4::from_scale(context.scale)
-            * Matrix4::from_angle_y(Deg(context.angle_y))
-            * Matrix4::from_angle_x(Deg(context.angle_x));
+            * Matrix4::from_nonuniform_scale(context.width, context.height, 1.0);
 
         let matrix: [[f32; 4]; 4] = (view * model).into();
 
