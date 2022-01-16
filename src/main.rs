@@ -1,3 +1,4 @@
+use std::detect::__is_feature_detected::sha;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,9 +57,24 @@ impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        canvas.text("Hello, world!", 50.0, 50.0, &FontParameters {
-            color: [1.0, 1.0, 1.0, 1.0],
-            align_horizontal: TextAlignHorizontal::Left,
+        let r = time_elapsed.sin() * 0.5 + 0.5;
+        let g = (time_elapsed + 5.0).sin() * 0.5 + 0.5;
+        let b = (time_elapsed + 10.0).sin() * 0.5 + 0.5;
+
+        let (x, y) = canvas.dimensions();
+
+        let shader = canvas.shaders().borrow().default();
+        let uniforms = uniform! {
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
+        };
+        let params = DrawParameters::default();
+
+        canvas.rect([40.0, 20.0, 100.0, 20.0], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+
+        canvas.text("Привет, мир!", x / 2.0, y - 50.0, &FontParameters {
+            color: [r, g, b, 1.0],
+            size: 72,
+            align_horizontal: TextAlignHorizontal::Center,
             .. Default::default()
         });
     }
