@@ -1,61 +1,51 @@
 use std::sync::Arc;
+use std::time::Instant;
 
-use cgmath::{Deg, Matrix4, vec3};
-use glium::{Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
+use cgmath::{Deg, Matrix4, SquareMatrix, vec3};
+use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
 use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
-use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseScrollDelta, StartCause, VirtualKeyCode};
+use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, StartCause, VirtualKeyCode};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
 use glium::texture::SrgbTexture2d;
 use glium::uniforms::MagnifySamplerFilter;
+use crate::font::{FontParameters, TextAlignHorizontal};
+use crate::render::Canvas;
 
-use crate::shapes::Vertex;
 use crate::window::{Context, Handler};
+
+#[macro_use]
+extern crate glium;
 
 mod window;
 mod shaders;
-mod shapes;
 mod textures;
+mod render;
+mod font;
 
 struct WindowContext {
-    program: Program,
-    vertices: VertexBuffer<Vertex>,
-    indices: IndexBuffer<u16>,
-    scale: f32,
-    angle_y: f32,
-    angle_x: f32,
+    start: Instant,
+    display: Arc<Display>,
     width: f32,
     height: f32,
     color: [f32; 3],
-    texture: Arc<SrgbTexture2d>,
+    mouse: [f32; 2]
 }
 
 impl Context for WindowContext {
     fn new(display: &Display) -> Self {
-        let vertex = include_str!("../resources/shaders/simple.vert");
-        let fragment = include_str!("../resources/shaders/simple.frag");
-        let program = shaders::compile(display, vertex, fragment, None);
-
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
-        let texture = textures::load(display, "resources/bricks.jpg");
-
-        let (vertices, indices) = shapes::square(display);
-        let indices = IndexBuffer::new(display, PrimitiveType::TriangleFan, &indices).unwrap();
         Self {
-            program,
-            vertices,
-            indices,
-            scale: 20.0,
-            angle_y: 0.0,
-            angle_x: 0.0,
+            start: Instant::now(),
+            display: Arc::new(display.clone()),
             width: size.width,
             height: size.height,
-            color: [1.0, 0.0, 0.0],
-            texture,
+            mouse: [0.0, 0.0],
+            color: [1.0, 0.0, 0.0]
         }
     }
 }
@@ -63,32 +53,14 @@ impl Context for WindowContext {
 struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
-    fn draw_frame(&mut self, context: &mut WindowContext, frame: &mut Frame, time_elapsed: f32) {
-        let view = cgmath::ortho(0.0, context.width, context.height, 0.0, -1024.0, 1024.0);
-        let center = vec3(context.width / 2.0, context.height / 2.0, 512.0);
-        let model = Matrix4::from_translation(center)
-            * Matrix4::from_nonuniform_scale(context.width, context.height, 1.0);
+    fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
+        canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let matrix: [[f32; 4]; 4] = (view * model).into();
-
-        let data = uniform! {
-            matrix: matrix,
-            time: time_elapsed,
-            tex: context.texture.sampled().magnify_filter(MagnifySamplerFilter::Nearest)
-        };
-        let params = DrawParameters {
-            depth: Depth {
-                test: DepthTest::IfLess,
-                write: true,
-                ..Default::default()
-            },
-            multisampling: true,
-            ..Default::default()
-        };
-
-        frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-
-        frame.draw(&context.vertices, &context.indices, &context.program, &data, &params).unwrap();
+        canvas.text("Hello, world!", 50.0, 50.0, &FontParameters {
+            color: [1.0, 1.0, 1.0, 1.0],
+            align_horizontal: TextAlignHorizontal::Left,
+            .. Default::default()
+        });
     }
 
     fn on_resized(&mut self, context: &mut WindowContext, width: f32, height: f32) {
@@ -99,27 +71,31 @@ impl Handler<WindowContext> for WindowHandler {
     fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
             MouseScrollDelta::LineDelta(_, y) => {
-                if modifiers.ctrl() {
-                    context.scale += 10.0 * y;
-                } else if modifiers.shift() {
-                    context.angle_x += 10.0 * y;
-                } else {
-                    context.angle_y += 10.0 * y;
-                }
+
             }
             _ => {}
         }
     }
 
-    fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput) {
+    fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
+        if button == MouseButton::Left {
+
+        }
+    }
+
+    fn on_mouse_move(&mut self, context: &mut WindowContext, x: f32, y: f32) {
+        context.mouse = [x, y];
+    }
+
+    fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
-            if key == VirtualKeyCode::Return && input.state == ElementState::Pressed {
-                println!("Pressed enter!");
+            if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
+
             }
         }
     }
 }
 
 fn main() {
-    window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
+    window::create("Разработка игра", LogicalSize::new(800, 600), 24, WindowHandler);
 }
