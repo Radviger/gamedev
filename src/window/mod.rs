@@ -30,7 +30,7 @@ pub fn create<T, S, C, H>(title: T, inner_size: S, depth_bits: u8, mut handler: 
     let fonts = Rc::new(RefCell::new(FontManager::new(&display)));
     let textures = Rc::new(RefCell::new(TextureManager::new(&display)));
 
-    let start_time = Instant::now();
+    let mut last_frame = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
         let fps_limit = context.get_frame_limit();
@@ -78,7 +78,8 @@ pub fn create<T, S, C, H>(title: T, inner_size: S, depth_bits: u8, mut handler: 
         };
 
         let now = Instant::now();
-        let time_elapsed = now.duration_since(start_time).as_secs_f32();
+        let time_elapsed = now.duration_since(last_frame).as_secs_f32();
+        last_frame = now;
 
         let mut frame = display.draw();
 
