@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use glium::{Display, Frame};
@@ -63,7 +64,16 @@ pub fn create<T, S, C, H>(title: T, inner_size: S, depth_bits: u8, mut handler: 
                     let dpi = display.gl_window().window().scale_factor();
                     let size = size.to_logical::<f32>(dpi);
                     handler.on_resized(&mut context, size.width, size.height);
-                }
+                },
+                WindowEvent::HoveredFile(path) => {
+                    handler.on_file_hovered(&mut context, path);
+                },
+                WindowEvent::DroppedFile(path) => {
+                    handler.on_file_dropped(&mut context, path);
+                },
+                WindowEvent::HoveredFileCancelled => {
+                    handler.on_file_cancelled(&mut context);
+                },
                 _ => {
                     *control_flow = ControlFlow::Poll;
                 },
@@ -113,4 +123,10 @@ pub trait Handler<C: Context>: Sized {
     fn on_mouse_move(&mut self, context: &mut C, x: f32, y: f32) {}
 
     fn on_resized(&mut self, context: &mut C, width: f32, height: f32) {}
+
+    fn on_file_hovered(&mut self, context: &mut C, path: PathBuf) {}
+
+    fn on_file_dropped(&mut self, context: &mut C, path: PathBuf) {}
+
+    fn on_file_cancelled(&mut self, context: &mut C) {}
 }
