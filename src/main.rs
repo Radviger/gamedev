@@ -55,11 +55,12 @@ struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
+        let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let r = time_elapsed.sin() * 0.5 + 0.5;
-        let g = (time_elapsed + 5.0).sin() * 0.5 + 0.5;
-        let b = (time_elapsed + 10.0).sin() * 0.5 + 0.5;
+        let r = time.sin() * 0.5 + 0.5;
+        let g = (time + 5.0).sin() * 0.5 + 0.5;
+        let b = (time + 10.0).sin() * 0.5 + 0.5;
 
         let (x, y) = canvas.dimensions();
 
@@ -94,7 +95,7 @@ impl Handler<WindowContext> for WindowHandler {
     }
 
     fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        if button == MouseButton::Left {
+        if button == MouseButton::Left && state == ElementState::Pressed {
 
         }
     }
@@ -113,5 +114,5 @@ impl Handler<WindowContext> for WindowHandler {
 }
 
 fn main() {
-    window::create("Разработка игра", LogicalSize::new(800, 600), 24, WindowHandler);
+    window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
 }
