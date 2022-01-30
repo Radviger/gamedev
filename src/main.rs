@@ -26,13 +26,22 @@ mod textures;
 mod render;
 mod font;
 
+const CELLS: usize = 3;
+
+struct Brick {
+    bounds: [f32; 4],
+    color: [f32; 4]
+}
+
 struct WindowContext {
     start: Instant,
     display: Arc<Display>,
     width: f32,
     height: f32,
     color: [f32; 3],
-    mouse: [f32; 2]
+    mouse: [f32; 2],
+    cells: [[u8; CELLS]; CELLS],
+    winner: u8
 }
 
 impl Context for WindowContext {
@@ -46,7 +55,9 @@ impl Context for WindowContext {
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            color: [1.0, 0.0, 0.0]
+            color: [1.0, 0.0, 0.0],
+            cells: [[0; CELLS]; CELLS],
+            winner: 0
         }
     }
 }
@@ -58,11 +69,7 @@ impl Handler<WindowContext> for WindowHandler {
         let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let r = time.sin() * 0.5 + 0.5;
-        let g = (time + 5.0).sin() * 0.5 + 0.5;
-        let b = (time + 10.0).sin() * 0.5 + 0.5;
-
-        let (x, y) = canvas.dimensions();
+        let (width, height) = canvas.dimensions();
 
         let shader = canvas.shaders().borrow().default();
         let uniforms = uniform! {
@@ -70,14 +77,40 @@ impl Handler<WindowContext> for WindowHandler {
         };
         let params = DrawParameters::default();
 
-        canvas.rect([40.0, 20.0, 100.0, 20.0], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+        let cw = width / CELLS as f32;
+        let ch = height / CELLS as f32;
 
-        canvas.text("Привет, мир!", x / 2.0, y - 50.0, &FontParameters {
-            color: [r, g, b, 1.0],
-            size: 72,
-            align_horizontal: TextAlignHorizontal::Center,
-            .. Default::default()
-        });
+        let size = (width / CELLS as f32) as u32;
+
+        if context.winner == 0 {
+            for (y, line) in context.cells.iter().enumerate() {
+                for (x, value) in line.iter().enumerate() {
+                    let (letter, color) = match value {
+                        1 => ("x", [1.0, 0.0, 0.0, 1.0]),
+                        2 => ("o", [0.0, 0.0, 1.0, 1.0]),
+                        _ => ("?", [1.0, 1.0, 1.0, 1.0])
+                    };
+                    canvas.text(letter, x as f32 * cw + cw / 2.0, y as f32 * ch + (size as f32 / 3.0), &FontParameters {
+                        color,
+                        size,
+                        align_horizontal: TextAlignHorizontal::Center,
+                        ..Default::default()
+                    });
+                }
+            }
+        } else {
+            let (winner, color) = match context.winner {
+                1 => ("Победили крестики", [1.0, 0.0, 0.0, 1.0]),
+                2 => ("Победили нолики", [0.0, 0.0, 1.0, 1.0]),
+                _ => ("Ничья", [1.0, 1.0, 1.0, 1.0])
+            };
+            canvas.text(winner, width / 2.0, height - 50.0, &FontParameters {
+                color,
+                size: 72,
+                align_horizontal: TextAlignHorizontal::Center,
+                .. Default::default()
+            });
+        }
     }
 
     fn on_resized(&mut self, context: &mut WindowContext, width: f32, height: f32) {
@@ -95,9 +128,134 @@ impl Handler<WindowContext> for WindowHandler {
     }
 
     fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        if button == MouseButton::Left && state == ElementState::Pressed {
+        let cw = context.width / CELLS as f32;
+        let ch = context.height / CELLS as f32;
+        let [mouse_x, mouse_y] = context.mouse;
+        let y = (mouse_y / ch) as usize;
+        let x = (mouse_x / cw) as usize;
 
+        if state == ElementState::Pressed {
+            match context.cells[y][x] {
+                1 | 2 => {},
+                _ => {
+                    if button == MouseButton::Left {
+                        context.cells[y][x] = 1;
+                    }
+                    if button == MouseButton::Right {
+                        context.cells[y][x] = 2;
+                    }
+                }
+            }
         }
+
+        // Horizontal strike
+
+        for y in 0..CELLS {
+            let mut counter = [0, 0, 0];
+            for x in 0..CELLS {
+                match context.cells[y][x] {
+                    1 => {
+                        counter[1] += 1;
+                    },
+                    2 => {
+                        counter[2] += 1;
+                    },
+                    _ => {
+                        counter[0] += 1;
+                    }
+                }
+            }
+            if counter[1] == CELLS { //x wins
+                context.winner = 1;
+                return;
+            }
+            if counter[2] == CELLS { //o wins
+                context.winner = 2;
+                return;
+            }
+        }
+
+        // Vertical strike
+
+        for x in 0..CELLS {
+            let mut counter = [0, 0, 0];
+            for y in 0..CELLS {
+                match context.cells[y][x] {
+                    1 => {
+                        counter[1] += 1;
+                    },
+                    2 => {
+                        counter[2] += 1;
+                    },
+                    _ => {
+                        counter[0] += 1;
+                    }
+                }
+            }
+            if counter[1] == CELLS { //x wins
+                context.winner = 1;
+                return;
+            }
+            if counter[2] == CELLS { //o wins
+                context.winner = 2;
+                return;
+            }
+        }
+
+        // First diagonal
+
+        {
+            let mut counter = [0, 0, 0];
+            for d in 0..CELLS {
+                match context.cells[d][d] {
+                    1 => {
+                        counter[1] += 1;
+                    },
+                    2 => {
+                        counter[2] += 1;
+                    },
+                    _ => {
+                        counter[0] += 1;
+                    }
+                }
+            }
+            if counter[1] == CELLS { //x wins
+                context.winner = 1;
+                return;
+            }
+            if counter[2] == CELLS { //o wins
+                context.winner = 2;
+                return;
+            }
+        }
+
+        //Second diagonal
+
+        {
+            let mut counter = [0, 0, 0];
+            for d in 0..CELLS {
+                match context.cells[d][CELLS-d-1] {
+                    1 => {
+                        counter[1] += 1;
+                    },
+                    2 => {
+                        counter[2] += 1;
+                    },
+                    _ => {
+                        counter[0] += 1;
+                    }
+                }
+            }
+            if counter[1] == CELLS { //x wins
+                context.winner = 1;
+                return;
+            }
+            if counter[2] == CELLS { //o wins
+                context.winner = 2;
+                return;
+            }
+        }
+
     }
 
     fn on_mouse_move(&mut self, context: &mut WindowContext, x: f32, y: f32) {
@@ -107,12 +265,13 @@ impl Handler<WindowContext> for WindowHandler {
     fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
             if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
-
+                context.winner = 0;
+                context.cells = [[0; CELLS]; CELLS];
             }
         }
     }
 }
 
 fn main() {
-    window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
+    window::create("Крестики-нолики", LogicalSize::new(480, 480), 24, WindowHandler);
 }
