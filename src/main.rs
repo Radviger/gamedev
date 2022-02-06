@@ -12,6 +12,7 @@ use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
 use glium::texture::SrgbTexture2d;
 use glium::uniforms::MagnifySamplerFilter;
+use crate::audio::SoundSystem;
 use crate::font::{FontParameters, TextAlignHorizontal};
 use crate::render::Canvas;
 
@@ -25,6 +26,7 @@ mod shaders;
 mod textures;
 mod render;
 mod font;
+mod audio;
 
 struct WindowContext {
     start: Instant,
@@ -32,7 +34,8 @@ struct WindowContext {
     width: f32,
     height: f32,
     color: [f32; 3],
-    mouse: [f32; 2]
+    mouse: [f32; 2],
+    sound_system: SoundSystem
 }
 
 impl Context for WindowContext {
@@ -40,13 +43,16 @@ impl Context for WindowContext {
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
+        let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
+
         Self {
             start: Instant::now(),
             display: Arc::new(display.clone()),
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            color: [1.0, 0.0, 0.0]
+            color: [1.0, 0.0, 0.0],
+            sound_system
         }
     }
 }
@@ -108,6 +114,9 @@ impl Handler<WindowContext> for WindowHandler {
         if let Some(key) = input.virtual_keycode {
             if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
 
+                let _ = context.sound_system.play_streaming_file("resources/sounds/laser.ogg")
+                    .expect("Error playing sound");
+                println!("pew-pew");
             }
         }
     }

@@ -12,3 +12,6 @@ glium_derive = "*"
 msgbox = "*"
 image = "*"
 rusttype = "*"
+alto = "*"
+lewton = "*"
+uuid = { version = "*", features = ["v4", "serde"] }
