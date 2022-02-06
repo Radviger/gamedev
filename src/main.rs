@@ -28,6 +28,9 @@ mod render;
 mod font;
 mod audio;
 
+const GRID: usize = 11;
+const GAME_SPEED: f32 = 2.0;
+
 struct WindowContext {
     start: Instant,
     display: Arc<Display>,
@@ -35,6 +38,11 @@ struct WindowContext {
     height: f32,
     color: [f32; 3],
     mouse: [f32; 2],
+    grid: [[Cell; GRID]; GRID],
+    dir: Option<Dir>,
+    timer: f32,
+    length: usize,
+    game_over: bool,
     sound_system: SoundSystem
 }
 
@@ -45,15 +53,109 @@ impl Context for WindowContext {
 
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
+        let mut grid = [[Cell::Air; GRID]; GRID];
+
+        grid[GRID / 2][GRID / 2] = Cell::Head;
+
+        grid[0][0] = Cell::Apple;
+
         Self {
             start: Instant::now(),
             display: Arc::new(display.clone()),
+            timer: 0.0,
+            dir: None,
+            length: 0,
+            game_over: false,
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
             color: [1.0, 0.0, 0.0],
+            grid,
             sound_system
         }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum Dir {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum Cell {
+    Air,
+    Apple,
+    Head,
+    Tail
+}
+
+impl WindowContext {
+    pub fn tick(&mut self) {
+        if let Some(dir) = self.dir {
+            for x in 0..GRID {
+                for y in 0..GRID {
+                    let slot = self.grid[y][x];
+                    if slot == Cell::Head {
+                        let old = self.move_to(x, y, dir, Cell::Head);
+                        if old == Cell::Apple {
+                            self.length += 1;
+                            println!("Съели яблоко");
+                            let ax = rand::random::<usize>() % GRID;
+                            let ay = rand::random::<usize>() % GRID;
+                            self.grid[ay][ax] = Cell::Apple;
+                            if self.length == 1 { // Хвоста еще не было
+                                self.grid[y][x] = Cell::Tail;
+                            } else {
+
+                            }
+                        } else if old == Cell::Tail {
+                            self.game_over = true;
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn move_to(&mut self, x: usize, y: usize, dir: Dir, slot: Cell) -> Cell {
+        self.grid[y][x] = Cell::Tail;
+        let cell = match dir {
+            Dir::Up => {
+                if y == 0 {
+                    &mut self.grid[GRID - 1][x]
+                } else {
+                    &mut self.grid[y - 1][x]
+                }
+            },
+            Dir::Down => {
+                if y + 1 == GRID {
+                    &mut self.grid[0][x]
+                } else {
+                    &mut self.grid[y + 1][x]
+                }
+            },
+            Dir::Left => {
+                if x == 0 {
+                    &mut self.grid[y][GRID - 1]
+                } else {
+                    &mut self.grid[y][x - 1]
+                }
+            },
+            Dir::Right => {
+                if x + 1 == GRID {
+                    &mut self.grid[y][0]
+                } else {
+                    &mut self.grid[y][x + 1]
+                }
+            }
+        };
+        let old = *cell;
+        *cell = slot;
+        old
     }
 }
 
@@ -64,9 +166,17 @@ impl Handler<WindowContext> for WindowHandler {
         let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let r = time.sin() * 0.5 + 0.5;
-        let g = (time + 5.0).sin() * 0.5 + 0.5;
-        let b = (time + 10.0).sin() * 0.5 + 0.5;
+        if !context.game_over {
+            let last_second = context.timer as u32;
+
+            context.timer += GAME_SPEED * time_elapsed;
+
+            let current_second = context.timer as u32;
+
+            if current_second > last_second {
+                context.tick();
+            }
+        }
 
         let (x, y) = canvas.dimensions();
 
@@ -76,11 +186,34 @@ impl Handler<WindowContext> for WindowHandler {
         };
         let params = DrawParameters::default();
 
-        canvas.rect([40.0, 20.0, 100.0, 20.0], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+        let size = x / GRID as f32;
 
-        canvas.text("Привет, мир!", x / 2.0, y - 50.0, &FontParameters {
-            color: [r, g, b, 1.0],
-            size: 72,
+        for row in 0..GRID {
+            for column in 0..GRID {
+                let slot = context.grid[row][column];
+                let color = match slot {
+                    Cell::Apple => [1.0, 0.0, 0.0, 1.0],
+                    Cell::Head  => [0.0, 1.0, 0.0, 1.0],
+                    Cell::Tail  => [0.0, 0.5, 0.0, 1.0],
+                    _           => [0.0, 0.0, 0.0, 1.0],
+                };
+                let x = column as f32 * size;
+                let y = row as f32 * size;
+                canvas.rect([x, y, size, size], color, &*shader, &uniforms, &params);
+            }
+        }
+
+        if context.game_over {
+            canvas.text("Вы проиграли", x / 2.0, y - 100.0, &FontParameters {
+                color: [1.0, 0.0, 0.0, 1.0],
+                size: 54,
+                align_horizontal: TextAlignHorizontal::Center,
+                .. Default::default()
+            });
+        }
+        canvas.text(format!("Счет: {}", context.length), x / 2.0, y - 50.0, &FontParameters {
+            color: [1.0, 1.0, 1.0, 1.0],
+            size: 54,
             align_horizontal: TextAlignHorizontal::Center,
             .. Default::default()
         });
@@ -112,16 +245,26 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
-            if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
+            if input.state == ElementState::Pressed {
+                if key == VirtualKeyCode::Back {
 
-                let _ = context.sound_system.play_streaming_file("resources/sounds/laser.ogg")
-                    .expect("Error playing sound");
-                println!("pew-pew");
+                    let _ = context.sound_system.play_streaming_file("resources/sounds/laser.ogg")
+                        .expect("Error playing sound");
+                    println!("pew-pew");
+                } else if key == VirtualKeyCode::W {
+                    context.dir = Some(Dir::Up);
+                } else if key == VirtualKeyCode::S {
+                    context.dir = Some(Dir::Down);
+                } else if key == VirtualKeyCode::A {
+                    context.dir = Some(Dir::Left);
+                } else if key == VirtualKeyCode::D {
+                    context.dir = Some(Dir::Right);
+                }
             }
         }
     }
 }
 
 fn main() {
-    window::create("Разработка игр", LogicalSize::new(800, 600), 24, WindowHandler);
+    window::create("Разработка игр", LogicalSize::new(400, 400), 24, WindowHandler);
 }
