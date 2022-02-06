@@ -53,7 +53,6 @@ impl TextureManager {
 
             let size = image.dimensions();
             let has_alpha = match image.color() {
-                ColorType::Bgra8 => true,
                 ColorType::La8 => true,
                 ColorType::La16 => true,
                 ColorType::Rgba8 => true,
@@ -61,9 +60,9 @@ impl TextureManager {
                 _ => false
             };
             let image: RawImage2d<u8> = if has_alpha {
-                RawImage2d::from_raw_rgba(image.to_rgba().into_raw(), size)
+                RawImage2d::from_raw_rgba(image.into_rgba8().into_raw(), size)
             } else {
-                RawImage2d::from_raw_rgb(image.to_rgb().into_raw(), size)
+                RawImage2d::from_raw_rgb(image.into_rgb8().into_raw(), size)
             };
             let texture = SrgbTexture2d::new(&self.display, image).expect("Texture allocation failed");
             self.textures.insert(name.clone(), Rc::new(Box::new(texture)));

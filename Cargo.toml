@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cgmath = "*"
-glium = "*"
-glium_derive = "*"
-msgbox = "*"
-image = "*"
-rusttype = "*"
-alto = "*"
-lewton = "*"
-uuid = { version = "*", features = ["v4", "serde"] }
+cgmath = "0.18.0"
+glium = "0.31.0"
+glium_derive = "0.1.4"
+msgbox = "0.6.1"
+image = "0.24"
+rusttype = "0.9.2"
+alto = "3.0.4"
+lewton = "0.10.2"
+uuid = { version = "1.0.0-alpha.1", features = ["v4", "serde"] }
