@@ -52,13 +52,7 @@ impl TextureManager {
                 .expect(&format!("Image loading failed: {}", name));
 
             let size = image.dimensions();
-            let has_alpha = match image.color() {
-                ColorType::La8 => true,
-                ColorType::La16 => true,
-                ColorType::Rgba8 => true,
-                ColorType::Rgba16 => true,
-                _ => false
-            };
+            let has_alpha = image.color().has_alpha();
             let image: RawImage2d<u8> = if has_alpha {
                 RawImage2d::from_raw_rgba(image.into_rgba8().into_raw(), size)
             } else {
