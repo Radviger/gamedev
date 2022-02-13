@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::detect::__is_feature_detected::sha;
 use std::sync::Arc;
 use std::time::Instant;
@@ -29,7 +30,9 @@ mod font;
 mod audio;
 
 const GRID: usize = 11;
-const GAME_SPEED: f32 = 2.0;
+const GAME_SPEED: f32 = 4.0;
+
+const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
 struct WindowContext {
     start: Instant,
@@ -40,23 +43,23 @@ struct WindowContext {
     mouse: [f32; 2],
     grid: [[Cell; GRID]; GRID],
     dir: Option<Dir>,
+    key_dir: Option<Dir>,
+    tail: VecDeque<[usize; 2]>,
     timer: f32,
-    length: usize,
     game_over: bool,
     sound_system: SoundSystem
 }
 
 impl Context for WindowContext {
     fn new(display: &Display) -> Self {
+
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
         let mut grid = [[Cell::Air; GRID]; GRID];
-
         grid[GRID / 2][GRID / 2] = Cell::Head;
-
         grid[0][0] = Cell::Apple;
 
         Self {
@@ -64,8 +67,9 @@ impl Context for WindowContext {
             display: Arc::new(display.clone()),
             timer: 0.0,
             dir: None,
-            length: 0,
+            key_dir: None,
             game_over: false,
+            tail: VecDeque::new(),
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
@@ -76,12 +80,38 @@ impl Context for WindowContext {
     }
 }
 
-#[derive(Copy, Clone)]
+impl WindowContext {
+    fn restart(&mut self) {
+        self.start = Instant::now();
+        self.timer = 0.0;
+        self.dir = None;
+        self.key_dir = None;
+        self.tail.clear();
+        let mut grid = [[Cell::Air; GRID]; GRID];
+        grid[GRID / 2][GRID / 2] = Cell::Head;
+        grid[0][0] = Cell::Apple;
+        self.grid = grid;
+        self.game_over = false;
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
 enum Dir {
     Up,
     Down,
     Left,
     Right
+}
+
+impl Dir {
+    fn opposite(&self) -> Dir {
+        match self {
+            Dir::Up => Dir::Down,
+            Dir::Down => Dir::Up,
+            Dir::Left => Dir::Right,
+            Dir::Right => Dir::Left
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -100,24 +130,38 @@ impl WindowContext {
                     let slot = self.grid[y][x];
                     if slot == Cell::Head {
                         let old = self.move_to(x, y, dir, Cell::Head);
-                        if old == Cell::Apple {
-                            self.length += 1;
-                            println!("Съели яблоко");
-                            let ax = rand::random::<usize>() % GRID;
-                            let ay = rand::random::<usize>() % GRID;
-                            self.grid[ay][ax] = Cell::Apple;
-                            if self.length == 1 { // Хвоста еще не было
-                                self.grid[y][x] = Cell::Tail;
-                            } else {
-
+                        self.dir = self.key_dir;
+                        self.tail.push_front([x, y]);
+                        match old {
+                            Cell::Apple => {
+                                let _ = self.sound_system.play_streaming_bytes(&EAT)
+                                    .expect("Error playing sound");
+                                loop {
+                                    let ax = rand::random::<usize>() % GRID;
+                                    let ay = rand::random::<usize>() % GRID;
+                                    let target = self.grid[ay][ax];
+                                    if target == Cell::Air {
+                                        self.grid[ay][ax] = Cell::Apple;
+                                        break;
+                                    }
+                                }
                             }
-                        } else if old == Cell::Tail {
-                            self.game_over = true;
+                            Cell::Tail => {
+                                self.game_over = true;
+                            }
+                            _ => {
+                                if let Some(pos) = self.tail.pop_back() {
+                                    let [x, y] = pos;
+                                    self.grid[y][x] = Cell::Air;
+                                }
+                            }
                         }
                         return;
                     }
                 }
             }
+        } else { //Начало игры
+            self.dir = self.key_dir;
         }
     }
 
@@ -211,7 +255,7 @@ impl Handler<WindowContext> for WindowHandler {
                 .. Default::default()
             });
         }
-        canvas.text(format!("Счет: {}", context.length), x / 2.0, y - 50.0, &FontParameters {
+        canvas.text(format!("Счет: {}", context.tail.len()), x / 2.0, y - 50.0, &FontParameters {
             color: [1.0, 1.0, 1.0, 1.0],
             size: 54,
             align_horizontal: TextAlignHorizontal::Center,
@@ -247,18 +291,24 @@ impl Handler<WindowContext> for WindowHandler {
         if let Some(key) = input.virtual_keycode {
             if input.state == ElementState::Pressed {
                 if key == VirtualKeyCode::Back {
-
-                    let _ = context.sound_system.play_streaming_file("resources/sounds/laser.ogg")
-                        .expect("Error playing sound");
-                    println!("pew-pew");
-                } else if key == VirtualKeyCode::W {
-                    context.dir = Some(Dir::Up);
-                } else if key == VirtualKeyCode::S {
-                    context.dir = Some(Dir::Down);
-                } else if key == VirtualKeyCode::A {
-                    context.dir = Some(Dir::Left);
-                } else if key == VirtualKeyCode::D {
-                    context.dir = Some(Dir::Right);
+                    context.restart();
+                } else {
+                    let new_dir = match key {
+                        VirtualKeyCode::W => Some(Dir::Up),
+                        VirtualKeyCode::S => Some(Dir::Down),
+                        VirtualKeyCode::A => Some(Dir::Left),
+                        VirtualKeyCode::D => Some(Dir::Right),
+                        _ => None
+                    };
+                    if let Some(inertia) = context.dir {
+                        if let Some(new_dir) = new_dir {
+                            if new_dir != inertia.opposite() {
+                                context.key_dir = Some(new_dir);
+                            }
+                        }
+                    } else {
+                        context.key_dir = new_dir;
+                    }
                 }
             }
         }

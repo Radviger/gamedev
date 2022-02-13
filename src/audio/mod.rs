@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Error;
+use std::io::{Cursor, Error, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -44,11 +44,19 @@ impl SoundSystem {
         Ok(id)
     }
 
+    pub fn play_streaming_bytes(&mut self, bytes: &[u8]) -> Result<Uuid, PlaybackError> {
+        let reader = OggStreamReader::new(Cursor::new(bytes))?;
+        self.play_streaming_reader(reader)
+    }
+
     pub fn play_streaming_file<P>(&mut self, path: P) -> Result<Uuid, PlaybackError> where P: AsRef<Path> {
         let path = path.as_ref();
         let file = File::open(path)?;
-        let mut reader = OggStreamReader::new(file)?;
+        let reader = OggStreamReader::new(file)?;
+        self.play_streaming_reader(reader)
+    }
 
+    pub fn play_streaming_reader<T>(&mut self, mut reader: OggStreamReader<T>) -> Result<Uuid, PlaybackError> where T: Read + Seek {
         let mut n = 0;
         let mut len_play = 0.0;
         let sample_rate = reader.ident_hdr.audio_sample_rate as i32;
