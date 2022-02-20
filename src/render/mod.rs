@@ -73,14 +73,14 @@ impl DrawBuffer {
 
     pub fn draw_once<S, U>(primitive_type: &PrimitiveType, normal: bool, texture: bool,
                            display: &Display, target: &mut S, program: &glium::Program, uniform: &U,
-                           params: &DrawParameters, vertices: Vec<Vertex>)
+                           params: &DrawParameters, vertices: &[Vertex])
         where S: Surface, U: Uniforms {
 
         let mut buffer = Self::with_capacity(vertices.len());
         buffer.start_drawing(primitive_type, normal, texture);
 
         for vertex in vertices {
-            buffer.add_vertex(vertex);
+            buffer.add_vertex(vertex.clone());
         }
 
         buffer.draw(display, target, program, uniform, params);
@@ -283,7 +283,7 @@ impl<S> Canvas<S> where S: Surface {
         DrawBuffer::draw_once(
             &PrimitiveType::TriangleFan, false, false, &self.display.clone(),
             &mut self.target, program, uniforms, params,
-            vec! [
+            &[
                 Vertex::pos([bounds[0], bounds[1], 0.0]).color(color),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color),
@@ -302,7 +302,7 @@ impl<S> Canvas<S> where S: Surface {
         DrawBuffer::draw_once(
             &PrimitiveType::LineLoop, false, false, &self.display.clone(),
             &mut self.target, program, uniforms, params,
-            vec! [
+            &[
                 Vertex::pos([bounds[0], bounds[1], 0.0]).color(color),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color),
@@ -321,7 +321,7 @@ impl<S> Canvas<S> where S: Surface {
         DrawBuffer::draw_once(
             &PrimitiveType::TriangleFan, false, true, &self.display.clone(),
             &mut self.target, program, uniforms, params,
-            vec! [
+            &[
                 Vertex::pos([bounds[0], bounds[1], 0.0]).color(color).uv([0.0, 0.0]),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color).uv([1.0, 0.0]),
                 Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color).uv([1.0, 1.0]),
@@ -347,7 +347,7 @@ impl<S> Canvas<S> where S: Surface {
         self.textured_rect(bounds, color, program, &uniforms, &params);
     }
 
-    pub fn generic_shape<U>(&mut self, ty: &PrimitiveType, vertices: Vec<Vertex>, texture: bool,
+    pub fn generic_shape<U>(&mut self, ty: &PrimitiveType, vertices: &[Vertex], texture: bool,
                             normal: bool, program: &Program, uniforms: &U, params: &DrawParameters) where U: Uniforms {
         DrawBuffer::draw_once(ty, normal, texture, &self.display.clone(),
                               &mut self.target, program, uniforms, params, vertices

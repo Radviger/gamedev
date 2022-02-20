@@ -1,21 +1,19 @@
+use std::borrow::BorrowMut;
 use std::collections::VecDeque;
-use std::detect::__is_feature_detected::sha;
 use std::sync::Arc;
 use std::time::Instant;
 
 use cgmath::{Deg, Matrix4, SquareMatrix, vec3};
 use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
-use glium::glutin::ContextBuilder;
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, StartCause, VirtualKeyCode};
-use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
 use glium::texture::SrgbTexture2d;
-use glium::uniforms::MagnifySamplerFilter;
+use glium::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
 use crate::audio::SoundSystem;
 use crate::font::{FontParameters, TextAlignHorizontal};
-use crate::render::Canvas;
+use crate::render::{Canvas, Vertex};
 
 use crate::window::{Context, Handler};
 
@@ -59,7 +57,7 @@ impl Context for WindowContext {
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
         let mut grid = [[Cell::Air; GRID]; GRID];
-        grid[GRID / 2][GRID / 2] = Cell::Head;
+        grid[GRID / 2][GRID / 2] = Cell::Head(Dir::Up);
         grid[0][0] = Cell::Apple;
 
         Self {
@@ -88,14 +86,14 @@ impl WindowContext {
         self.key_dir = None;
         self.tail.clear();
         let mut grid = [[Cell::Air; GRID]; GRID];
-        grid[GRID / 2][GRID / 2] = Cell::Head;
+        grid[GRID / 2][GRID / 2] = Cell::Head(Dir::Up);
         grid[0][0] = Cell::Apple;
         self.grid = grid;
         self.game_over = false;
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum Dir {
     Up,
     Down,
@@ -114,12 +112,12 @@ impl Dir {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum Cell {
     Air,
     Apple,
-    Head,
-    Tail
+    Head(Dir),
+    Body(Dir, Dir)
 }
 
 impl WindowContext {
@@ -128,8 +126,8 @@ impl WindowContext {
             for x in 0..GRID {
                 for y in 0..GRID {
                     let slot = self.grid[y][x];
-                    if slot == Cell::Head {
-                        let old = self.move_to(x, y, dir, Cell::Head);
+                    if let Cell::Head(head_dir) = slot {
+                        let old = self.move_to(x, y, head_dir, dir, Cell::Head(dir));
                         self.dir = self.key_dir;
                         self.tail.push_front([x, y]);
                         match old {
@@ -146,12 +144,11 @@ impl WindowContext {
                                     }
                                 }
                             }
-                            Cell::Tail => {
+                            Cell::Body(_, _) => {
                                 self.game_over = true;
                             }
                             _ => {
-                                if let Some(pos) = self.tail.pop_back() {
-                                    let [x, y] = pos;
+                                if let Some([x, y]) = self.tail.pop_back() {
                                     self.grid[y][x] = Cell::Air;
                                 }
                             }
@@ -165,8 +162,8 @@ impl WindowContext {
         }
     }
 
-    pub fn move_to(&mut self, x: usize, y: usize, dir: Dir, slot: Cell) -> Cell {
-        self.grid[y][x] = Cell::Tail;
+    pub fn move_to(&mut self, x: usize, y: usize, head_dir: Dir, dir: Dir, slot: Cell) -> Cell {
+        self.grid[y][x] = Cell::Body(head_dir.opposite(), dir);
         let cell = match dir {
             Dir::Up => {
                 if y == 0 {
@@ -210,6 +207,10 @@ impl Handler<WindowContext> for WindowHandler {
         let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
+        let tiles = canvas.textures().try_borrow_mut().unwrap()
+            .get_or_load(String::from("tiles"), "resources/textures/tiles.png")
+            .unwrap();
+
         if !context.game_over {
             let last_second = context.timer as u32;
 
@@ -224,26 +225,102 @@ impl Handler<WindowContext> for WindowHandler {
 
         let (x, y) = canvas.dimensions();
 
-        let shader = canvas.shaders().borrow().default();
+        let program = canvas.shaders().borrow().textured();
+
         let uniforms = uniform! {
-            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
+            tex: tiles.sampled()
+                .anisotropy(4)
+                .minify_filter(MinifySamplerFilter::Nearest)
+                .magnify_filter(MagnifySamplerFilter::Nearest)
         };
-        let params = DrawParameters::default();
+        let params = DrawParameters {
+            blend: Blend::alpha_blending(),
+            .. Default::default()
+        };
 
         let size = x / GRID as f32;
 
         for row in 0..GRID {
             for column in 0..GRID {
                 let slot = context.grid[row][column];
-                let color = match slot {
-                    Cell::Apple => [1.0, 0.0, 0.0, 1.0],
-                    Cell::Head  => [0.0, 1.0, 0.0, 1.0],
-                    Cell::Tail  => [0.0, 0.5, 0.0, 1.0],
-                    _           => [0.0, 0.0, 0.0, 1.0],
-                };
+                let color = [1.0; 4];
                 let x = column as f32 * size;
                 let y = row as f32 * size;
-                canvas.rect([x, y, size, size], color, &*shader, &uniforms, &params);
+                let w = size;
+                let h = size;
+
+                let is_tail = if let Some(tail) = context.tail.back() {
+                    tail == &[column, row]
+                } else {
+                    false
+                };
+
+                let slot = match slot {
+                    Cell::Apple => 15,
+                    Cell::Head(dir) => {
+                        match dir {
+                            Dir::Up => 3,
+                            Dir::Down => 9,
+                            Dir::Left => 8,
+                            Dir::Right => 4
+                        }
+                    },
+                    Cell::Body(from, to) => {
+                        if is_tail {
+                            match to {
+                                Dir::Up => 13,
+                                Dir::Down => 19,
+                                Dir::Left => 18,
+                                Dir::Right => 14
+                            }
+                        } else {
+                            match from {
+                                Dir::Down => {
+                                    match to {
+                                        Dir::Down => unreachable!(),
+                                        Dir::Up => 7,
+                                        Dir::Left => 2,
+                                        Dir::Right => 0
+                                    }
+                                },
+                                Dir::Up => {
+                                    match to {
+                                        Dir::Down => 7,
+                                        Dir::Up => unreachable!(),
+                                        Dir::Left => 12,
+                                        Dir::Right => 5
+                                    }
+                                },
+                                Dir::Left => {
+                                    match to {
+                                        Dir::Down => 2,
+                                        Dir::Up => 12,
+                                        Dir::Left => unreachable!(),
+                                        Dir::Right => 1
+                                    }
+                                },
+                                Dir::Right => {
+                                    match to {
+                                        Dir::Down => 0,
+                                        Dir::Up => 5,
+                                        Dir::Left => 1,
+                                        Dir::Right => unreachable!()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => 6
+                };
+                let texture_x = (slot % 5) as f32 / 5.0;
+                let texture_y = (slot / 5) as f32 / 4.0;
+                canvas.generic_shape(&PrimitiveType::TriangleFan, &[
+                    Vertex::pos([x    , y    , 0.0]).color(color).uv([texture_x      , texture_y]),
+                    Vertex::pos([x + w, y    , 0.0]).color(color).uv([texture_x + 0.2, texture_y]),
+                    Vertex::pos([x + w, y + h, 0.0]).color(color).uv([texture_x + 0.2, texture_y + 0.25]),
+                    Vertex::pos([x    , y + h, 0.0]).color(color).uv([texture_x      , texture_y + 0.25]),
+                ], true, false, &*program, &uniforms, &params);
             }
         }
 
