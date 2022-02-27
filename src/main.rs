@@ -11,6 +11,7 @@ use glium::glutin::window::WindowBuilder;
 use glium::index::PrimitiveType;
 use glium::texture::SrgbTexture2d;
 use glium::uniforms::{MagnifySamplerFilter, MinifySamplerFilter};
+use rand::random;
 use crate::audio::SoundSystem;
 use crate::font::{FontParameters, TextAlignHorizontal};
 use crate::render::{Canvas, Vertex};
@@ -27,23 +28,17 @@ mod render;
 mod font;
 mod audio;
 
-const GRID: usize = 11;
-const GAME_SPEED: f32 = 4.0;
+const GRID: usize = 9;
 
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
 struct WindowContext {
-    start: Instant,
+    start: Option<Instant>,
     display: Arc<Display>,
     width: f32,
     height: f32,
-    color: [f32; 3],
     mouse: [f32; 2],
     grid: [[Cell; GRID]; GRID],
-    dir: Option<Dir>,
-    key_dir: Option<Dir>,
-    tail: VecDeque<[usize; 2]>,
-    timer: f32,
     game_over: bool,
     sound_system: SoundSystem
 }
@@ -56,22 +51,21 @@ impl Context for WindowContext {
 
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
-        let mut grid = [[Cell::Air; GRID]; GRID];
-        grid[GRID / 2][GRID / 2] = Cell::Head(Dir::Up);
-        grid[0][0] = Cell::Apple;
+        let cell = Cell {
+            mine: false,
+            counter: 0,
+            visibility: Visibility::Hidden
+        };
+
+        let mut grid = [[cell; GRID]; GRID];
 
         Self {
-            start: Instant::now(),
+            start: None,
             display: Arc::new(display.clone()),
-            timer: 0.0,
-            dir: None,
-            key_dir: None,
             game_over: false,
-            tail: VecDeque::new(),
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            color: [1.0, 0.0, 0.0],
             grid,
             sound_system
         }
@@ -80,152 +74,42 @@ impl Context for WindowContext {
 
 impl WindowContext {
     fn restart(&mut self) {
-        self.start = Instant::now();
-        self.timer = 0.0;
-        self.dir = None;
-        self.key_dir = None;
-        self.tail.clear();
-        let mut grid = [[Cell::Air; GRID]; GRID];
-        grid[GRID / 2][GRID / 2] = Cell::Head(Dir::Up);
-        grid[0][0] = Cell::Apple;
-        self.grid = grid;
-        self.game_over = false;
+
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum Dir {
-    Up,
-    Down,
-    Left,
-    Right
-}
-
-impl Dir {
-    fn opposite(&self) -> Dir {
-        match self {
-            Dir::Up => Dir::Down,
-            Dir::Down => Dir::Up,
-            Dir::Left => Dir::Right,
-            Dir::Right => Dir::Left
-        }
-    }
+#[derive(Copy, Clone, Debug)]
+struct Cell {
+    mine: bool,
+    counter: u8,
+    visibility: Visibility
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-enum Cell {
-    Air,
-    Apple,
-    Head(Dir),
-    Body(Dir, Dir)
+enum Visibility {
+    Hidden,
+    Revealed,
+    Flagged
 }
 
 impl WindowContext {
-    pub fn tick(&mut self) {
-        if let Some(dir) = self.dir {
-            for x in 0..GRID {
-                for y in 0..GRID {
-                    let slot = self.grid[y][x];
-                    if let Cell::Head(head_dir) = slot {
-                        let old = self.move_to(x, y, head_dir, dir, Cell::Head(dir));
-                        self.dir = self.key_dir;
-                        self.tail.push_front([x, y]);
-                        match old {
-                            Cell::Apple => {
-                                let _ = self.sound_system.play_streaming_bytes(&EAT)
-                                    .expect("Error playing sound");
-                                loop {
-                                    let ax = rand::random::<usize>() % GRID;
-                                    let ay = rand::random::<usize>() % GRID;
-                                    let target = self.grid[ay][ax];
-                                    if target == Cell::Air {
-                                        self.grid[ay][ax] = Cell::Apple;
-                                        break;
-                                    }
-                                }
-                            }
-                            Cell::Body(_, _) => {
-                                self.game_over = true;
-                            }
-                            _ => {
-                                if let Some([x, y]) = self.tail.pop_back() {
-                                    self.grid[y][x] = Cell::Air;
-                                }
-                            }
-                        }
-                        return;
-                    }
-                }
-            }
-        } else { //Начало игры
-            self.dir = self.key_dir;
-        }
-    }
 
-    pub fn move_to(&mut self, x: usize, y: usize, head_dir: Dir, dir: Dir, slot: Cell) -> Cell {
-        self.grid[y][x] = Cell::Body(head_dir.opposite(), dir);
-        let cell = match dir {
-            Dir::Up => {
-                if y == 0 {
-                    &mut self.grid[GRID - 1][x]
-                } else {
-                    &mut self.grid[y - 1][x]
-                }
-            },
-            Dir::Down => {
-                if y + 1 == GRID {
-                    &mut self.grid[0][x]
-                } else {
-                    &mut self.grid[y + 1][x]
-                }
-            },
-            Dir::Left => {
-                if x == 0 {
-                    &mut self.grid[y][GRID - 1]
-                } else {
-                    &mut self.grid[y][x - 1]
-                }
-            },
-            Dir::Right => {
-                if x + 1 == GRID {
-                    &mut self.grid[y][0]
-                } else {
-                    &mut self.grid[y][x + 1]
-                }
-            }
-        };
-        let old = *cell;
-        *cell = slot;
-        old
-    }
 }
 
 struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
-        let time = context.start.elapsed().as_secs_f32();
+        // let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
         let tiles = canvas.textures().try_borrow_mut().unwrap()
             .get_or_load(String::from("tiles"), "resources/textures/tiles.png")
             .unwrap();
 
-        if !context.game_over {
-            let last_second = context.timer as u32;
+        let (width, height) = canvas.dimensions();
 
-            context.timer += GAME_SPEED * time_elapsed;
-
-            let current_second = context.timer as u32;
-
-            if current_second > last_second {
-                context.tick();
-            }
-        }
-
-        let (x, y) = canvas.dimensions();
-
-        let program = canvas.shaders().borrow().textured();
+        let program = canvas.shaders().borrow().default();
 
         let uniforms = uniform! {
             mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
@@ -239,105 +123,49 @@ impl Handler<WindowContext> for WindowHandler {
             .. Default::default()
         };
 
-        let size = x / GRID as f32;
+        let s = context.width / (GRID as f32);
 
-        for row in 0..GRID {
-            for column in 0..GRID {
-                let slot = context.grid[row][column];
-                let color = [1.0; 4];
-                let x = column as f32 * size;
-                let y = row as f32 * size;
-                let w = size;
-                let h = size;
-
-                let is_tail = if let Some(tail) = context.tail.back() {
-                    tail == &[column, row]
+        for x in 0..GRID {
+            for y in 0..GRID {
+                let cell = &context.grid[x][y];
+                let x = x as f32 * s;
+                let y = y as f32 * s;
+                /*if cell.visibility == Visibility::Hidden {
+                    canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &program, &uniforms, &params);
                 } else {
-                    false
-                };
-
-                let slot = match slot {
-                    Cell::Apple => 15,
-                    Cell::Head(dir) => {
-                        match dir {
-                            Dir::Up => 3,
-                            Dir::Down => 9,
-                            Dir::Left => 8,
-                            Dir::Right => 4
-                        }
-                    },
-                    Cell::Body(from, to) => {
-                        if is_tail {
-                            match to {
-                                Dir::Up => 13,
-                                Dir::Down => 19,
-                                Dir::Left => 18,
-                                Dir::Right => 14
-                            }
-                        } else {
-                            match from {
-                                Dir::Down => {
-                                    match to {
-                                        Dir::Down => unreachable!(),
-                                        Dir::Up => 7,
-                                        Dir::Left => 2,
-                                        Dir::Right => 0
-                                    }
-                                },
-                                Dir::Up => {
-                                    match to {
-                                        Dir::Down => 7,
-                                        Dir::Up => unreachable!(),
-                                        Dir::Left => 12,
-                                        Dir::Right => 5
-                                    }
-                                },
-                                Dir::Left => {
-                                    match to {
-                                        Dir::Down => 2,
-                                        Dir::Up => 12,
-                                        Dir::Left => unreachable!(),
-                                        Dir::Right => 1
-                                    }
-                                },
-                                Dir::Right => {
-                                    match to {
-                                        Dir::Down => 0,
-                                        Dir::Up => 5,
-                                        Dir::Left => 1,
-                                        Dir::Right => unreachable!()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => 6
-                };
-                let texture_x = (slot % 5) as f32 / 5.0;
-                let texture_y = (slot / 5) as f32 / 4.0;
-                canvas.generic_shape(&PrimitiveType::TriangleFan, &[
-                    Vertex::pos([x    , y    , 0.0]).color(color).uv([texture_x      , texture_y]),
-                    Vertex::pos([x + w, y    , 0.0]).color(color).uv([texture_x + 0.2, texture_y]),
-                    Vertex::pos([x + w, y + h, 0.0]).color(color).uv([texture_x + 0.2, texture_y + 0.25]),
-                    Vertex::pos([x    , y + h, 0.0]).color(color).uv([texture_x      , texture_y + 0.25]),
-                ], true, false, &*program, &uniforms, &params);
+                    canvas.rect([x, y, s, s], [0.0, 0.0, 0.0, 1.0], &program, &uniforms, &params);
+                }*/
+                if cell.mine {
+                    canvas.rect([x, y, s, s], [1.0, 0.0, 0.0, 1.0], &program, &uniforms, &params);
+                } else {
+                    canvas.text(&format!("{}", cell.counter), x + 15.0, y + 5.0, &FontParameters {
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        size: 54,
+                        align_horizontal: TextAlignHorizontal::Left,
+                        .. Default::default()
+                    });
+                }
             }
         }
 
+
         if context.game_over {
-            canvas.text("Вы проиграли", x / 2.0, y - 100.0, &FontParameters {
+            canvas.text("Вы проиграли", width / 2.0, height - 100.0, &FontParameters {
                 color: [1.0, 0.0, 0.0, 1.0],
                 size: 54,
                 align_horizontal: TextAlignHorizontal::Center,
                 .. Default::default()
             });
         }
-        canvas.text(format!("Счет: {}", context.tail.len()), x / 2.0, y - 50.0, &FontParameters {
+        /*let [mx, my] = context.mouse;
+        let x = (mx / context.width * GRID as f32) as usize;
+        let y = (my / context.height * GRID as f32) as usize;
+        canvas.text(format!("Мышь: {}, {}", x, y), width / 2.0, height - 50.0, &FontParameters {
             color: [1.0, 1.0, 1.0, 1.0],
             size: 54,
             align_horizontal: TextAlignHorizontal::Center,
             .. Default::default()
-        });
+        });*/
     }
 
     fn on_resized(&mut self, context: &mut WindowContext, width: f32, height: f32) {
@@ -356,7 +184,40 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
         if button == MouseButton::Left && state == ElementState::Pressed {
+            context.grid = [[Cell {
+                mine: false,
+                counter: 0,
+                visibility: Visibility::Hidden
+            }; GRID]; GRID];
 
+            let [mx, my] = context.mouse;
+            let x = (mx / context.width * GRID as f32) as usize;
+            let y = (my / context.height * GRID as f32) as usize;
+            context.grid[x][y].visibility = Visibility::Revealed;
+
+            let mut mines = GRID + 1;
+
+            while mines > 0 {
+                let x = random::<usize>() % GRID;
+                let y = random::<usize>() % GRID;
+
+                let cell = &mut context.grid[x][y];
+
+                if !cell.mine {
+                    cell.mine = true;
+                    mines -= 1;
+
+                    for dx in -1..=1isize {
+                        for dy in -1..=1isize {
+                            let x = x as isize + dx;
+                            let y = y as isize + dy;
+                            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                                context.grid[x as usize][y as usize].counter += 1;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -366,28 +227,7 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
-            if input.state == ElementState::Pressed {
-                if key == VirtualKeyCode::Back {
-                    context.restart();
-                } else {
-                    let new_dir = match key {
-                        VirtualKeyCode::W => Some(Dir::Up),
-                        VirtualKeyCode::S => Some(Dir::Down),
-                        VirtualKeyCode::A => Some(Dir::Left),
-                        VirtualKeyCode::D => Some(Dir::Right),
-                        _ => None
-                    };
-                    if let Some(inertia) = context.dir {
-                        if let Some(new_dir) = new_dir {
-                            if new_dir != inertia.opposite() {
-                                context.key_dir = Some(new_dir);
-                            }
-                        }
-                    } else {
-                        context.key_dir = new_dir;
-                    }
-                }
-            }
+
         }
     }
 }
