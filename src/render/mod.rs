@@ -277,17 +277,17 @@ impl<S> Canvas<S> where S: Surface {
                          params: &DrawParameters)
         where B: Into<[f32; 4]>, C: Into<[f32; 4]>, U: Uniforms {
 
-        let bounds = bounds.into();
+        let [x, y, w, h] = bounds.into();
         let color = color.into();
 
         DrawBuffer::draw_once(
             &PrimitiveType::TriangleFan, false, false, &self.display.clone(),
             &mut self.target, program, uniforms, params,
             &[
-                Vertex::pos([bounds[0], bounds[1], 0.0]).color(color),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color),
-                Vertex::pos([bounds[0], bounds[1] + bounds[3], 0.0]).color(color),
+                Vertex::pos([x, y, 0.0]).color(color),
+                Vertex::pos([x + w, y, 0.0]).color(color),
+                Vertex::pos([x + w, y + h, 0.0]).color(color),
+                Vertex::pos([x, y + h, 0.0]).color(color),
             ]
         )
     }
@@ -296,17 +296,17 @@ impl<S> Canvas<S> where S: Surface {
                           params: &DrawParameters)
         where B: Into<[f32; 4]>, C: Into<[f32; 4]>, U: Uniforms {
 
-        let bounds = bounds.into();
+        let [x, y, w, h] = bounds.into();
         let color = color.into();
 
         DrawBuffer::draw_once(
             &PrimitiveType::LineLoop, false, false, &self.display.clone(),
             &mut self.target, program, uniforms, params,
             &[
-                Vertex::pos([bounds[0], bounds[1], 0.0]).color(color),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color),
-                Vertex::pos([bounds[0], bounds[1] + bounds[3], 0.0]).color(color),
+                Vertex::pos([x, y, 0.0]).color(color),
+                Vertex::pos([x + w, y, 0.0]).color(color),
+                Vertex::pos([x + w, y + h, 0.0]).color(color),
+                Vertex::pos([x, y + h, 0.0]).color(color),
             ]
         )
     }
@@ -315,17 +315,17 @@ impl<S> Canvas<S> where S: Surface {
                                   params: &DrawParameters)
         where B: Into<[f32; 4]>, C: Into<[f32; 4]>, U: Uniforms {
 
-        let bounds = bounds.into();
+        let [x, y, w, h] = bounds.into();
         let color = color.into();
 
         DrawBuffer::draw_once(
             &PrimitiveType::TriangleFan, false, true, &self.display.clone(),
             &mut self.target, program, uniforms, params,
             &[
-                Vertex::pos([bounds[0], bounds[1], 0.0]).color(color).uv([0.0, 0.0]),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1], 0.0]).color(color).uv([1.0, 0.0]),
-                Vertex::pos([bounds[0] + bounds[2], bounds[1] + bounds[3], 0.0]).color(color).uv([1.0, 1.0]),
-                Vertex::pos([bounds[0], bounds[1] + bounds[3], 0.0]).color(color).uv([0.0, 1.0]),
+                Vertex::pos([x, y, 0.0]).color(color).uv([0.0, 0.0]),
+                Vertex::pos([x + w, y, 0.0]).color(color).uv([1.0, 0.0]),
+                Vertex::pos([x + w, y + h, 0.0]).color(color).uv([1.0, 1.0]),
+                Vertex::pos([x, y + h, 0.0]).color(color).uv([0.0, 1.0]),
             ]
         )
     }
