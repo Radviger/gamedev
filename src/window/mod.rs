@@ -21,6 +21,7 @@ pub fn create<T, S, C, H>(title: T, inner_size: S, depth_bits: u8, mut handler: 
     let event_loop = EventLoop::new();
     let wb = WindowBuilder::new()
         .with_title(title)
+        .with_resizable(false)
         .with_inner_size(inner_size);
 
     let cb = ContextBuilder::new().with_depth_buffer(depth_bits);

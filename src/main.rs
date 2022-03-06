@@ -1,3 +1,4 @@
+#![windows_subsystem="windows"]
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -28,7 +29,9 @@ mod render;
 mod font;
 mod audio;
 
-const GRID: usize = 9;
+const GRID: usize = 15;
+const W: u32 = 40 * (GRID as u32 + 1);
+const H: u32 = 40 * (GRID as u32 + 1);
 
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
@@ -191,8 +194,7 @@ impl Handler<WindowContext> for WindowHandler {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
         let tiles = canvas.textures().try_borrow_mut().unwrap()
-            .get_or_load(String::from("tiles"), "resources/textures/tiles.png")
-            .unwrap();
+            .tiles();
 
         let (width, height) = canvas.dimensions();
 
@@ -319,5 +321,5 @@ impl Handler<WindowContext> for WindowHandler {
 }
 
 fn main() {
-    window::create("Сапёр", LogicalSize::new(400, 400), 24, WindowHandler);
+    window::create("Сапёр", LogicalSize::new(W, H), 24, WindowHandler);
 }

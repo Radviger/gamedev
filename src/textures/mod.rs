@@ -22,24 +22,35 @@ pub struct TextureManager {
 #[macro_export]
 macro_rules! texture {
     ($manager:expr, $name:literal) => {{
-        use crate::image::{self, GenericImageView};
-        static IMAGE_BUF: &'static [u8] = include_bytes!(concat!("resources/", $name, ".png"));
+        use image::{self, GenericImageView};
+        static IMAGE_BUF: &'static [u8] = include_bytes!(concat!("../../resources/textures/", $name, ".png"));
         let manager = $manager;
         let image = image::load_from_memory_with_format(&IMAGE_BUF, image::ImageFormat::Png)
             .expect("Image loading failed");
         let size = image.dimensions();
-        let image = glium::texture::RawImage2d::from_raw_rgba(image.raw_pixels(), size);
-        let texture = glium::texture::SrgbTexture2d::new(manager.display, image).expect("Texture allocation failed");
+        let has_alpha = image.color().has_alpha();
+        let image: glium::texture::RawImage2d<u8> = if has_alpha {
+            glium::texture::RawImage2d::from_raw_rgba(image.into_rgba8().into_raw(), size)
+        } else {
+            glium::texture::RawImage2d::from_raw_rgb(image.into_rgb8().into_raw(), size)
+        };
+        let texture = glium::texture::SrgbTexture2d::new(&manager.display, image).expect("Texture allocation failed");
         manager.textures.insert($name.into(), std::rc::Rc::new(Box::new(texture)));
     }};
 }
 
 impl TextureManager {
     pub fn new(display: &Display) -> TextureManager {
-        TextureManager {
+        let mut manager = TextureManager {
             display: display.clone(),
             textures: HashMap::new()
-        }
+        };
+        texture!(&mut manager, "tiles");
+        manager
+    }
+
+    pub fn tiles(&self) -> Rc<Box<SrgbTexture2d>> {
+        self.textures.get("tiles").cloned().unwrap()
     }
 
     pub fn get<T>(&self, name: T) -> Rc<Box<SrgbTexture2d>> where T: AsRef<str> {
