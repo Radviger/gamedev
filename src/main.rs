@@ -129,7 +129,6 @@ impl WindowContext {
         let counter = cell.counter;
 
         if cell.mine {
-            println!("BANG!");
             self.game_over = true;
             for x in 0..GRID {
                 for y in 0..GRID {
@@ -137,7 +136,7 @@ impl WindowContext {
                     cell.visibility = match cell.visibility {
                         Visibility::Hidden => if cell.mine { Visibility::Revealed } else { Visibility::Hidden },
                         Visibility::Revealed => Visibility::Revealed,
-                        Visibility::Flagged => if cell.mine { Visibility::Revealed } else { Visibility::Wrong },
+                        Visibility::Flagged => if cell.mine { Visibility::Flagged } else { Visibility::Wrong },
                         Visibility::Wrong => Visibility::Wrong,
                         Visibility::Question => Visibility::Question
                     }
