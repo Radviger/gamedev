@@ -29,9 +29,10 @@ mod render;
 mod font;
 mod audio;
 
-const GRID: usize = 15;
-const W: u32 = 40 * (GRID as u32 + 1);
-const H: u32 = 40 * (GRID as u32 + 1);
+const GRID: usize = 9;
+const S: u32 = 32;
+const W: u32 = S * GRID as u32;
+const H: u32 = S * GRID as u32;
 
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
@@ -48,7 +49,6 @@ struct WindowContext {
 
 impl Context for WindowContext {
     fn new(display: &Display) -> Self {
-
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
@@ -212,7 +212,7 @@ impl Handler<WindowContext> for WindowHandler {
             .. Default::default()
         };
 
-        let s = context.width / (GRID as f32);
+        let s = S as f32;
 
         let color = [1.0;4];
 
@@ -236,12 +236,12 @@ impl Handler<WindowContext> for WindowHandler {
                 };
 
                 let texture_x = (slot % 5) as f32 / 5.0;
-                let texture_y = (slot / 5) as f32 / 3.0;
+                let texture_y = (slot / 5) as f32 / 4.0;
                 canvas.generic_shape(&PrimitiveType::TriangleFan, &[
                     Vertex::pos([x    , y    , 0.0]).color(color).uv([texture_x      , texture_y]),
                     Vertex::pos([x + s, y    , 0.0]).color(color).uv([texture_x + 0.2, texture_y]),
-                    Vertex::pos([x + s, y + s, 0.0]).color(color).uv([texture_x + 0.2, texture_y + 1.0 / 3.0]),
-                    Vertex::pos([x    , y + s, 0.0]).color(color).uv([texture_x      , texture_y + 1.0 / 3.0]),
+                    Vertex::pos([x + s, y + s, 0.0]).color(color).uv([texture_x + 0.2, texture_y + 1.0 / 4.0]),
+                    Vertex::pos([x    , y + s, 0.0]).color(color).uv([texture_x      , texture_y + 1.0 / 4.0]),
                 ], true, false, &*program, &uniforms, &params);
             }
         }
