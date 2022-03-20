@@ -1,13 +1,10 @@
-#![windows_subsystem="windows"]
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
-use std::iter::once;
 use std::sync::Arc;
 use std::time::Instant;
 
-use cgmath::{Deg, Matrix4, point3, SquareMatrix, Transform, vec2, vec3, Vector2};
-use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, StencilOperation, StencilTest, Surface, Texture2d, uniform, VertexBuffer};
-use glium::draw_parameters::Stencil;
+use cgmath::{Deg, Matrix4, SquareMatrix, vec3};
+use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, StartCause, VirtualKeyCode};
 use glium::glutin::window::WindowBuilder;
@@ -31,18 +28,11 @@ mod render;
 mod font;
 mod audio;
 
-const GRID: usize = 40;
-const S: u32 = 16;
+const GRID: usize = 10;
+const S: u32 = 32;
 const W: u32 = S * GRID as u32;
 const H: u32 = S * GRID as u32;
-
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
-
-struct Light {
-    pos: Vector2<f32>,
-    color: [f32; 3],
-    radius: f32
-}
 
 struct WindowContext {
     start: Option<Instant>,
@@ -51,11 +41,11 @@ struct WindowContext {
     height: f32,
     mouse: [f32; 2],
     grid: [[Cell; GRID]; GRID],
-    color: [f32; 3],
-    radius: f32,
-    lights: Vec<Light>,
+    inventory: [usize;4],
     game_over: bool,
-    sound_system: SoundSystem
+    sound_system: SoundSystem,
+    length: u8,
+    dir: Dir,
 }
 
 impl Context for WindowContext {
@@ -66,8 +56,9 @@ impl Context for WindowContext {
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
         let cell = Cell {
-            block: false
+            ship: None
         };
+
 
         let mut grid = [[cell; GRID]; GRID];
 
@@ -78,11 +69,11 @@ impl Context for WindowContext {
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            radius: 10.0,
-            color: [1.0; 3],
-            lights: Vec::new(),
             grid,
-            sound_system
+            sound_system,
+            inventory: [4, 3, 2, 1],
+            length: 1,
+            dir: Dir::Down,
         }
     }
 }
@@ -93,180 +84,129 @@ impl WindowContext {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct Cell {
-    block: bool
+    ship: Option<(Dir, u8)>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Dir {
+    fn to_vec(&self) -> (isize, isize) {
+        match self {
+            Dir::Up => (0, -1),
+            Dir::Down => (0, 1),
+            Dir::Left => (-1, 0),
+            Dir::Right => (1, 0)
+        }
+    }
 }
 
 impl WindowContext {
+    fn has_selected_ship_model(&self) -> bool {
+        self.inventory[self.length as usize - 1] > 0
+    }
 
+    fn has_collision(&self, x: usize, y: usize) -> bool {
+        for i in 0..self.length {
+            let (dx, dy) = self.dir.to_vec();
+            let x = x as isize + dx * i as isize;
+            let y = y as isize + dy * i as isize;
+            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                for ddx in -1..=1 {
+                    for ddy in -1..=1 {
+                        let x = x as i32 + ddx;
+                        let y = y as i32 + ddy;
+                        if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
+                            let cell = &self.grid[x as usize][y as usize];
+                            if cell.ship.is_some() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
 struct WindowHandler;
 
 impl Handler<WindowContext> for WindowHandler {
     fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
-        // let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
-
-        let (width, height) = canvas.dimensions();
-
-        let default_program = canvas.shaders().borrow().default();
-        let light_program = canvas.shaders().borrow().light();
-
-        let uniforms = uniform! {
-            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
-        };
 
         let s = S as f32;
 
-        let color = [1.0; 4];
+        let shader = canvas.shaders().borrow().default();
+        let uniforms = uniform! {
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
+        };
+        let params = DrawParameters::default();
 
-        let cursor = Light { pos: Vector2::from(context.mouse), color: context.color.clone(), radius: context.radius };
-
-        for light in context.lights.iter().chain(once(&cursor)) {
-            // Shadows
-            for x in 0..GRID {
-                for y in 0..GRID {
-                    let cell = &context.grid[x][y];
-                    if cell.block {
-                        let x = x as f32 * s;
-                        let y = y as f32 * s;
-                        let vertices = [
-                            vec2(x, y),
-                            vec2(x + s, y),
-                            vec2(x + s, y + s),
-                            vec2(x, y + s)
-                        ];
-                        for i in 0..vertices.len() {
-                            let this = vertices[i];
-                            let next = vertices[(i + 1) % vertices.len()];
-                            let edge = next - this;
-                            let light_to_this = this - light.pos;
-                            let light_to_next = next - light.pos;
-                            if edge.perp_dot(light_to_this) > 0.0 {
-                                let p1 = this + light_to_this * W as f32;
-                                let p2 = next + light_to_next * W as f32;
-                                canvas.generic_shape(&PrimitiveType::TriangleFan, &[
-                                    Vertex::pos(this.extend(0.0)).color(color),
-                                    Vertex::pos(p1.extend(0.0)).color(color),
-                                    Vertex::pos(p2.extend(0.0)).color(color),
-                                    Vertex::pos(next.extend(0.0)).color(color),
-                                ], false, false, &default_program, &uniforms, &DrawParameters {
-                                    color_mask: (false, false, false, false),
-                                    stencil: Stencil {
-                                        test_counter_clockwise: StencilTest::AlwaysPass,
-                                        reference_value_counter_clockwise: 1,
-                                        write_mask_counter_clockwise: 1,
-                                        fail_operation_counter_clockwise: StencilOperation::Keep,
-                                        pass_depth_fail_operation_counter_clockwise: StencilOperation::Keep,
-                                        depth_pass_operation_counter_clockwise: StencilOperation::Keep,
-                                        .. Default::default()
-                                    },
-                                    .. Default::default()
-                                })
-                            }
-                        }
-
-                        canvas.rect([x, y, s, s], color, &default_program, &uniforms, &Default::default());
-                    }
-                }
-            }
-
-            let viewport = canvas.viewport();
-
-            let pos = light.pos;
-
-            //Light source itself
-            let uniforms = uniform! {
-                mat: Into::<[[f32; 4]; 4]>::into(viewport),
-                lightLocation: [pos.x, pos.y],
-                lightColor: light.color,
-                lightRadius: light.radius
-            };
-            let params = DrawParameters {
-                blend: Blend::alpha_blending(),
-                color_mask: (true, true, true, true),
-                stencil: Stencil {
-                    test_counter_clockwise: StencilTest::AlwaysPass,
-                    reference_value_counter_clockwise: 0,
-                    write_mask_counter_clockwise: 1,
-                    fail_operation_counter_clockwise: StencilOperation::Keep,
-                    pass_depth_fail_operation_counter_clockwise: StencilOperation::Keep,
-                    depth_pass_operation_counter_clockwise: StencilOperation::Keep,
-                    .. Default::default()
-                },
-                .. Default::default()
-            };
-            canvas.rect([0.0, 0.0, width, height], [1.0; 4], &light_program, &uniforms, &params);
-            canvas.clear_stencil(0);
-        }
-
-        // Walls
         for x in 0..GRID {
             for y in 0..GRID {
                 let cell = &context.grid[x][y];
-                if cell.block {
-                    let x = x as f32 * s;
-                    let y = y as f32 * s;
-                    canvas.rect([x, y, s, s], [0.0, 0.0, 0.0, 1.0], &default_program, &uniforms, &Default::default());
+                let x = x as f32 * s;
+                let y = y as f32 * s;
+                if let Some((dir, i)) = cell.ship {
+                    canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
+                    canvas.text(&format!("{i}"), x + s / 2.0, y + s / 3.0, &FontParameters {
+                        size: 52,
+                        color: [1.0; 4],
+                        .. Default::default()
+                    });
                 }
             }
-        }
-
-/*
-        if context.game_over {
-            canvas.text("Вы проиграли", width / 2.0, height - 100.0, &FontParameters {
-                color: [1.0, 0.0, 0.0, 1.0],
-                size: 54,
-                align_horizontal: TextAlignHorizontal::Center,
-                .. Default::default()
-            });
-        }*/
-        /*let [mx, my] = context.mouse;
-        let x = (mx / context.width * GRID as f32) as usize;
-        let y = (my / context.height * GRID as f32) as usize;
-        canvas.text(format!("Мышь: {}, {}", x, y), width / 2.0, height - 50.0, &FontParameters {
-            color: [1.0, 1.0, 1.0, 1.0],
-            size: 54,
-            align_horizontal: TextAlignHorizontal::Center,
-            .. Default::default()
-        });*/
-    }
-
-    fn on_resized(&mut self, context: &mut WindowContext, width: f32, height: f32) {
-        context.width = width;
-        context.height = height;
-    }
-
-    fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
-        match delta {
-            MouseScrollDelta::LineDelta(_, y) => {
-                context.radius = (context.radius + y).clamp(2.0, 50.0);
-            }
-            _ => {}
-        }
-    }
-
-    fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        if context.game_over {
-            return;
         }
         let [mx, my] = context.mouse;
         let x = (mx / context.width * GRID as f32) as usize;
         let y = (my / context.height * GRID as f32) as usize;
-        if button == MouseButton::Right && state == ElementState::Pressed {
-            let mut cell = &mut context.grid[x][y];
-            cell.block = !cell.block;
+
+        let mut error = context.has_collision(x, y) || !context.has_selected_ship_model();
+
+        let color = if !error {
+            [0.0, 1.0, 1.0, 1.0]
+        } else {
+            [1.0, 0.0, 0.0, 1.0]
+        };
+        for i in 0..context.length {
+            let (dx, dy) = context.dir.to_vec();
+            let x = x as isize + dx * i as isize;
+            let y = y as isize + dy * i as isize;
+            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+            }
         }
+    }
+    fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
+        let [mx, my] = context.mouse;
+        let x = (mx / context.width * GRID as f32) as usize;
+        let y = (my / context.height * GRID as f32) as usize;
         if button == MouseButton::Left && state == ElementState::Pressed {
-            let color = context.color.clone();
-            let radius = context.radius;
-            context.lights.push(Light {
-                pos: vec2(mx, my),
-                color,
-                radius
-            });
+            let mut error = context.has_collision(x, y) || !context.has_selected_ship_model();
+
+            if !error {
+                for i in 0..context.length {
+                    let (dx, dy) = context.dir.to_vec();
+                    let x = x as isize + dx * i as isize;
+                    let y = y as isize + dy * i as isize;
+                    if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                        context.grid[x as usize][y as usize] = Cell { ship: Some((context.dir, i)) };
+                    }
+                }
+                context.inventory[context.length as usize - 1] -= 1;
+            }
         }
     }
 
@@ -276,17 +216,43 @@ impl Handler<WindowContext> for WindowHandler {
 
     fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
-            if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
-                context.game_over = false;
-                context.reset(usize::MAX, usize::MAX, false);
+            if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
+                context.length = 1;
             }
-            if key == VirtualKeyCode::Space && input.state == ElementState::Pressed {
-                context.color = random();
+            if key == VirtualKeyCode::Key2 && input.state == ElementState::Pressed {
+                context.length = 2;
             }
+            if key == VirtualKeyCode::Key3 && input.state == ElementState::Pressed {
+                context.length = 3;
+            }
+            if key == VirtualKeyCode::Key4 && input.state == ElementState::Pressed {
+                context.length = 4;
+            }
+            if key == VirtualKeyCode::W || key == VirtualKeyCode::Up && input.state == ElementState::Pressed {
+                context.dir = Dir::Up;
+            }
+            if key == VirtualKeyCode::A || key == VirtualKeyCode::Left && input.state == ElementState::Pressed {
+                context.dir = Dir::Left;
+            }
+            if key == VirtualKeyCode::S || key == VirtualKeyCode::Down && input.state == ElementState::Pressed {
+                context.dir = Dir::Down;
+            }
+            if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
+                context.dir = Dir::Right;
+            }
+        }
+    }
+    fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
+        match delta {
+            MouseScrollDelta::LineDelta(_, y) => {
+                context.length = ((context.length as f32 + y) as u8).clamp(1, 4)
+            }
+            _ => {}
         }
     }
 }
 
+
 fn main() {
-    window::create("Сапёр", LogicalSize::new(W, H), 24, WindowHandler);
+    window::create("Морской бой", LogicalSize::new(W, H), 24, WindowHandler);
 }
