@@ -47,6 +47,9 @@ impl ShaderManager {
         programs.insert("default".into(), Rc::new(Box::new(
             shader!(display, "default")
         )));
+        programs.insert("light".into(), Rc::new(Box::new(
+            shader!(display, "light")
+        )));
         programs.insert("textured".into(), Rc::new(Box::new(
             shader!(display, "textured")
         )));
@@ -63,6 +66,10 @@ impl ShaderManager {
 
     pub fn default(&self) -> Rc<Box<Program>> {
         self.programs.get("default".into()).cloned().expect("Default shader is missing")
+    }
+
+    pub fn light(&self) -> Rc<Box<Program>> {
+        self.programs.get("light".into()).cloned().expect("Light shader is missing")
     }
 
     pub fn textured(&self) -> Rc<Box<Program>> {

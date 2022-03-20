@@ -273,6 +273,10 @@ impl<S> Canvas<S> where S: Surface {
         self.target.clear_color_and_depth(color, depth);
     }
 
+    pub fn clear_stencil(&mut self, value: i32) {
+        self.target.clear_stencil(value)
+    }
+
     pub fn rect<B, C, U>(&mut self, bounds: B, color: C, program: &Program, uniforms: &U,
                          params: &DrawParameters)
         where B: Into<[f32; 4]>, C: Into<[f32; 4]>, U: Uniforms {

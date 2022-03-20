@@ -1,11 +1,13 @@
 #![windows_subsystem="windows"]
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
+use std::iter::once;
 use std::sync::Arc;
 use std::time::Instant;
 
-use cgmath::{Deg, Matrix4, SquareMatrix, vec3};
-use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, Surface, Texture2d, uniform, VertexBuffer};
+use cgmath::{Deg, Matrix4, point3, SquareMatrix, Transform, vec2, vec3, Vector2};
+use glium::{Blend, Depth, DepthTest, Display, DrawParameters, Frame, IndexBuffer, Program, StencilOperation, StencilTest, Surface, Texture2d, uniform, VertexBuffer};
+use glium::draw_parameters::Stencil;
 use glium::glutin::dpi::LogicalSize;
 use glium::glutin::event::{ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, StartCause, VirtualKeyCode};
 use glium::glutin::window::WindowBuilder;
@@ -29,12 +31,18 @@ mod render;
 mod font;
 mod audio;
 
-const GRID: usize = 9;
-const S: u32 = 32;
+const GRID: usize = 40;
+const S: u32 = 16;
 const W: u32 = S * GRID as u32;
 const H: u32 = S * GRID as u32;
 
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
+
+struct Light {
+    pos: Vector2<f32>,
+    color: [f32; 3],
+    radius: f32
+}
 
 struct WindowContext {
     start: Option<Instant>,
@@ -43,6 +51,9 @@ struct WindowContext {
     height: f32,
     mouse: [f32; 2],
     grid: [[Cell; GRID]; GRID],
+    color: [f32; 3],
+    radius: f32,
+    lights: Vec<Light>,
     game_over: bool,
     sound_system: SoundSystem
 }
@@ -55,9 +66,7 @@ impl Context for WindowContext {
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
         let cell = Cell {
-            mine: false,
-            counter: 0,
-            visibility: Visibility::Hidden
+            block: false
         };
 
         let mut grid = [[cell; GRID]; GRID];
@@ -69,6 +78,9 @@ impl Context for WindowContext {
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
+            radius: 10.0,
+            color: [1.0; 3],
+            lights: Vec::new(),
             grid,
             sound_system
         }
@@ -78,108 +90,12 @@ impl Context for WindowContext {
 impl WindowContext {
     fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {
         self.start = Some(Instant::now());
-
-        for x in 0..GRID {
-            for y in 0..GRID {
-                let cell = &mut self.grid[x][y];
-                *cell = Cell {
-                    mine: false,
-                    counter: 0,
-                    visibility: if keep_flags { cell.visibility } else { Visibility::Hidden }
-                };
-            }
-        }
-
-        let mut mines = GRID + 1;
-
-        while mines > 0 {
-            let x = random::<usize>() % GRID;
-            let y = random::<usize>() % GRID;
-
-            if x == click_x && y == click_y {
-                continue;
-            }
-
-            let cell = &mut self.grid[x][y];
-
-            if !cell.mine {
-                cell.mine = true;
-                mines -= 1;
-
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        let x = x as i32 + dx;
-                        let y = y as i32 + dy;
-                        if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
-                            self.grid[x as usize][y as usize].counter += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn reveal(&mut self, cell_x: usize, cell_y: usize, visited: &mut Vec<(usize, usize)>) {
-        visited.push((cell_x, cell_y));
-
-        let cell = &mut self.grid[cell_x][cell_y];
-
-        if cell.visibility != Visibility::Hidden {
-            return;
-        }
-
-        cell.visibility = Visibility::Revealed;
-        let counter = cell.counter;
-
-        if cell.mine {
-            self.game_over = true;
-            for x in 0..GRID {
-                for y in 0..GRID {
-                    let mut cell = &mut self.grid[x][y];
-                    cell.visibility = match cell.visibility {
-                        Visibility::Hidden => if cell.mine { Visibility::Revealed } else { Visibility::Hidden },
-                        Visibility::Revealed => Visibility::Revealed,
-                        Visibility::Flagged => if cell.mine { Visibility::Flagged } else { Visibility::Wrong },
-                        Visibility::Wrong => Visibility::Wrong,
-                        Visibility::Question => Visibility::Question
-                    }
-                }
-            }
-        } else if counter == 0 {
-            for dx in -1..=1i32 {
-                for dy in -1..=1i32 {
-                    let x = cell_x as i32 + dx;
-                    let y = cell_y as i32 + dy;
-                    if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
-                        let x = x as usize;
-                        let y = y as usize;
-                        if !visited.contains(&(x, y)) {
-                            let neighbour = &self.grid[x][y];
-                            if !neighbour.mine && (neighbour.counter != 0 || dx.abs() != dy.abs()) {
-                                self.reveal(x, y, visited);
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
 struct Cell {
-    mine: bool,
-    counter: u8,
-    visibility: Visibility
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum Visibility {
-    Hidden,
-    Revealed,
-    Flagged,
-    Wrong,
-    Question
+    block: bool
 }
 
 impl WindowContext {
@@ -193,56 +109,108 @@ impl Handler<WindowContext> for WindowHandler {
         // let time = context.start.elapsed().as_secs_f32();
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let tiles = canvas.textures().try_borrow_mut().unwrap()
-            .tiles();
-
         let (width, height) = canvas.dimensions();
 
-        let program = canvas.shaders().borrow().textured();
+        let default_program = canvas.shaders().borrow().default();
+        let light_program = canvas.shaders().borrow().light();
 
         let uniforms = uniform! {
-            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
-            tex: tiles.sampled()
-                .anisotropy(4)
-                .minify_filter(MinifySamplerFilter::Nearest)
-                .magnify_filter(MagnifySamplerFilter::Nearest)
-        };
-        let params = DrawParameters {
-            blend: Blend::alpha_blending(),
-            .. Default::default()
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
         };
 
         let s = S as f32;
 
-        let color = [1.0;4];
+        let color = [1.0; 4];
 
+        let cursor = Light { pos: Vector2::from(context.mouse), color: context.color.clone(), radius: context.radius };
+
+        for light in context.lights.iter().chain(once(&cursor)) {
+            // Shadows
+            for x in 0..GRID {
+                for y in 0..GRID {
+                    let cell = &context.grid[x][y];
+                    if cell.block {
+                        let x = x as f32 * s;
+                        let y = y as f32 * s;
+                        let vertices = [
+                            vec2(x, y),
+                            vec2(x + s, y),
+                            vec2(x + s, y + s),
+                            vec2(x, y + s)
+                        ];
+                        for i in 0..vertices.len() {
+                            let this = vertices[i];
+                            let next = vertices[(i + 1) % vertices.len()];
+                            let edge = next - this;
+                            let light_to_this = this - light.pos;
+                            let light_to_next = next - light.pos;
+                            if edge.perp_dot(light_to_this) > 0.0 {
+                                let p1 = this + light_to_this * W as f32;
+                                let p2 = next + light_to_next * W as f32;
+                                canvas.generic_shape(&PrimitiveType::TriangleFan, &[
+                                    Vertex::pos(this.extend(0.0)).color(color),
+                                    Vertex::pos(p1.extend(0.0)).color(color),
+                                    Vertex::pos(p2.extend(0.0)).color(color),
+                                    Vertex::pos(next.extend(0.0)).color(color),
+                                ], false, false, &default_program, &uniforms, &DrawParameters {
+                                    color_mask: (false, false, false, false),
+                                    stencil: Stencil {
+                                        test_counter_clockwise: StencilTest::AlwaysPass,
+                                        reference_value_counter_clockwise: 1,
+                                        write_mask_counter_clockwise: 1,
+                                        fail_operation_counter_clockwise: StencilOperation::Keep,
+                                        pass_depth_fail_operation_counter_clockwise: StencilOperation::Keep,
+                                        depth_pass_operation_counter_clockwise: StencilOperation::Keep,
+                                        .. Default::default()
+                                    },
+                                    .. Default::default()
+                                })
+                            }
+                        }
+
+                        canvas.rect([x, y, s, s], color, &default_program, &uniforms, &Default::default());
+                    }
+                }
+            }
+
+            let viewport = canvas.viewport();
+
+            let pos = light.pos;
+
+            //Light source itself
+            let uniforms = uniform! {
+                mat: Into::<[[f32; 4]; 4]>::into(viewport),
+                lightLocation: [pos.x, pos.y],
+                lightColor: light.color,
+                lightRadius: light.radius
+            };
+            let params = DrawParameters {
+                blend: Blend::alpha_blending(),
+                color_mask: (true, true, true, true),
+                stencil: Stencil {
+                    test_counter_clockwise: StencilTest::AlwaysPass,
+                    reference_value_counter_clockwise: 0,
+                    write_mask_counter_clockwise: 1,
+                    fail_operation_counter_clockwise: StencilOperation::Keep,
+                    pass_depth_fail_operation_counter_clockwise: StencilOperation::Keep,
+                    depth_pass_operation_counter_clockwise: StencilOperation::Keep,
+                    .. Default::default()
+                },
+                .. Default::default()
+            };
+            canvas.rect([0.0, 0.0, width, height], [1.0; 4], &light_program, &uniforms, &params);
+            canvas.clear_stencil(0);
+        }
+
+        // Walls
         for x in 0..GRID {
             for y in 0..GRID {
                 let cell = &context.grid[x][y];
-                let x = x as f32 * s;
-                let y = y as f32 * s;
-                let slot = match cell.visibility {
-                    Visibility::Hidden => 9,
-                    Visibility::Flagged => 10,
-                    Visibility::Wrong => 11,
-                    Visibility::Question => 12,
-                    Visibility::Revealed => {
-                        if cell.mine {
-                            13
-                        } else {
-                            cell.counter
-                        }
-                    }
-                };
-
-                let texture_x = (slot % 5) as f32 / 5.0;
-                let texture_y = (slot / 5) as f32 / 4.0;
-                canvas.generic_shape(&PrimitiveType::TriangleFan, &[
-                    Vertex::pos([x    , y    , 0.0]).color(color).uv([texture_x      , texture_y]),
-                    Vertex::pos([x + s, y    , 0.0]).color(color).uv([texture_x + 0.2, texture_y]),
-                    Vertex::pos([x + s, y + s, 0.0]).color(color).uv([texture_x + 0.2, texture_y + 1.0 / 4.0]),
-                    Vertex::pos([x    , y + s, 0.0]).color(color).uv([texture_x      , texture_y + 1.0 / 4.0]),
-                ], true, false, &*program, &uniforms, &params);
+                if cell.block {
+                    let x = x as f32 * s;
+                    let y = y as f32 * s;
+                    canvas.rect([x, y, s, s], [0.0, 0.0, 0.0, 1.0], &default_program, &uniforms, &Default::default());
+                }
             }
         }
 
@@ -274,7 +242,7 @@ impl Handler<WindowContext> for WindowHandler {
     fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
             MouseScrollDelta::LineDelta(_, y) => {
-
+                context.radius = (context.radius + y).clamp(2.0, 50.0);
             }
             _ => {}
         }
@@ -287,22 +255,18 @@ impl Handler<WindowContext> for WindowHandler {
         let [mx, my] = context.mouse;
         let x = (mx / context.width * GRID as f32) as usize;
         let y = (my / context.height * GRID as f32) as usize;
-        if button == MouseButton::Left && state == ElementState::Pressed {
-            if context.start.is_none() {
-                context.reset(x, y, true);
-            }
-            let mut visited = Vec::new();
-            context.reveal(x, y, &mut visited);
-        }
         if button == MouseButton::Right && state == ElementState::Pressed {
-            let cell = &mut context.grid[x][y];
-            cell.visibility = match cell.visibility {
-                Visibility::Revealed => Visibility::Revealed,
-                Visibility::Wrong => Visibility::Wrong,
-                Visibility::Hidden => Visibility::Flagged,
-                Visibility::Flagged => Visibility::Question,
-                Visibility::Question => Visibility::Hidden
-            };
+            let mut cell = &mut context.grid[x][y];
+            cell.block = !cell.block;
+        }
+        if button == MouseButton::Left && state == ElementState::Pressed {
+            let color = context.color.clone();
+            let radius = context.radius;
+            context.lights.push(Light {
+                pos: vec2(mx, my),
+                color,
+                radius
+            });
         }
     }
 
@@ -315,6 +279,9 @@ impl Handler<WindowContext> for WindowHandler {
             if key == VirtualKeyCode::Back && input.state == ElementState::Pressed {
                 context.game_over = false;
                 context.reset(usize::MAX, usize::MAX, false);
+            }
+            if key == VirtualKeyCode::Space && input.state == ElementState::Pressed {
+                context.color = random();
             }
         }
     }
