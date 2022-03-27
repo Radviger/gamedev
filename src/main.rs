@@ -56,7 +56,7 @@ struct Field {
 impl Field {
     fn new() -> Field {
         Field {
-            cells: [[Cell { ship: None }; GRID]; GRID]
+            cells: [[Cell::Water; GRID]; GRID]
         }
     }
 
@@ -80,7 +80,7 @@ impl Field {
                         let y = y as i32 + ddy;
                         if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
                             let cell = &self.cells[x as usize][y as usize];
-                            if cell.ship.is_some() {
+                            if let Cell::Ship { .. } = cell {
                                 return true;
                             }
                         }
@@ -100,11 +100,6 @@ impl Context for GameContext {
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
 
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
-
-        let cell = Cell {
-            ship: None
-        };
-
 
         let mut our_field = Field::new();
         let mut enemy_field = Field::new();
@@ -134,8 +129,14 @@ impl GameContext {
 
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-struct Cell {
-    ship: Option<(Dir, u8)>,
+enum Cell {
+    Water,
+    Miss,
+    Ship {
+        dir: Dir,
+        length: u8,
+        fire: bool
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -167,7 +168,7 @@ struct WindowHandler;
 
 impl Handler<GameContext> for WindowHandler {
     fn draw_frame(&mut self, game: &mut GameContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
-        canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
+        canvas.clear((0.0, 0.0, 1.0, 1.0), 1.0);
 
         let s = S as f32;
 
@@ -182,13 +183,28 @@ impl Handler<GameContext> for WindowHandler {
                 let cell = game.our_field.get(x, y);
                 let x = x as f32 * s;
                 let y = y as f32 * s;
-                if let Some((dir, i)) = cell.ship {
-                    canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
-                    canvas.text(&format!("{i}"), x + s / 2.0, y + s / 3.0, &FontParameters {
-                        size: 52,
-                        color: [1.0; 4],
-                        .. Default::default()
-                    });
+
+                match cell {
+                    Cell::Water => {},
+                    Cell::Miss => {
+                        canvas.text("O", x + s / 2.0, y + s / 3.0, &FontParameters {
+                            size: 52,
+                            color: [1.0; 4],
+                            .. Default::default()
+                        });
+                    },
+                    Cell::Ship { dir, length, fire } => {
+                        if *fire {
+                            canvas.rect([x, y, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                        } else {
+                            canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
+                            canvas.text(&format!("{length}"), x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                                size: 52,
+                                color: [1.0; 4],
+                                .. Default::default()
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -197,13 +213,21 @@ impl Handler<GameContext> for WindowHandler {
                 let cell = game.enemy_field.get(x, y);
                 let x = x as f32 * s;
                 let y = y as f32 * s;
-                if let Some((dir, i)) = cell.ship {
-                    canvas.rect([x + game.width / 2.0, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
-                    canvas.text(&format!("{i}"), x + game.width / 2.0 + s / 2.0 - 3.0, y + s / 3.0 - 3.0, &FontParameters {
-                        size: 52,
-                        color: [1.0, 0.0, 1.0, 1.0],
-                        .. Default::default()
-                    });
+
+                match cell {
+                    Cell::Miss => {
+                        canvas.text("O", x + game.width / 2.0 + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                            size: 52,
+                            color: [1.0; 4],
+                            .. Default::default()
+                        });
+                    },
+                    Cell::Ship { dir, length, fire } => {
+                        if *fire {
+                            canvas.rect([x + game.width / 2.0, y, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                        }
+                    },
+                    _ => {}
                 }
             }
         }
@@ -253,7 +277,7 @@ impl Handler<GameContext> for WindowHandler {
                         let x = x as isize + dx * i as isize;
                         let y = y as isize + dy * i as isize;
                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                            game.our_field.set(x as usize, y as usize, Cell { ship: Some((game.dir, i)) });
+                            game.our_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false });
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
@@ -285,7 +309,7 @@ impl Handler<GameContext> for WindowHandler {
                                         let x = x as isize + dx * i as isize;
                                         let y = y as isize + dy * i as isize;
                                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                                            game.enemy_field.set(x as usize, y as usize, Cell { ship: Some((dir, i)) });
+                                            game.enemy_field.set(x as usize, y as usize, Cell::Ship { dir: dir, length: i, fire: false });
                                         }
                                     }
                                     inventory[length as usize - 1] -= 1;
@@ -297,6 +321,24 @@ impl Handler<GameContext> for WindowHandler {
             }
         } else if game.start.is_some() {
             let x = x - 10;
+            let cell = game.enemy_field.get(x, y);
+
+            match cell {
+                Cell::Water => {
+                    println!("Missed!");
+                    game.enemy_field.set(x, y, Cell::Miss)
+                },
+                Cell::Ship { fire, dir, length } if !*fire => {
+                    println!("Direct hit!");
+                    game.enemy_field.set(x, y, Cell::Ship {
+                        dir: *dir,
+                        length: *length,
+                        fire: true
+                    });
+                },
+                _ => {}
+            }
+
             println!("Clicked enemy field at {x} {y}")
         }
     }
