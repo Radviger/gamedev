@@ -34,7 +34,7 @@ const W: u32 = 2 * S * GRID as u32;
 const H: u32 = S * GRID as u32;
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
-struct WindowContext {
+struct GameContext {
     start: Option<Instant>,
     display: Arc<Display>,
     width: f32,
@@ -46,7 +46,7 @@ struct WindowContext {
     game_over: bool,
     sound_system: SoundSystem,
     length: u8,
-    dir: Dir,
+    dir: Dir
 }
 
 struct Field {
@@ -94,7 +94,7 @@ impl Field {
     }
 }
 
-impl Context for WindowContext {
+impl Context for GameContext {
     fn new(display: &Display) -> Self {
         let dpi = display.gl_window().window().scale_factor();
         let size = display.gl_window().window().inner_size().to_logical::<f32>(dpi);
@@ -120,15 +120,15 @@ impl Context for WindowContext {
             enemy_field,
             sound_system,
             inventory: [4, 3, 2, 1],
-            length: 1,
+            length: 4,
             dir: Dir::Down,
         }
     }
 }
 
-impl WindowContext {
+impl GameContext {
     fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {
-        self.start = Some(Instant::now());
+
     }
 }
 
@@ -157,7 +157,7 @@ impl Dir {
     }
 }
 
-impl WindowContext {
+impl GameContext {
     fn has_selected_ship_model(&self) -> bool {
         self.inventory[self.length as usize - 1] > 0
     }
@@ -165,8 +165,8 @@ impl WindowContext {
 
 struct WindowHandler;
 
-impl Handler<WindowContext> for WindowHandler {
-    fn draw_frame(&mut self, context: &mut WindowContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
+impl Handler<GameContext> for WindowHandler {
+    fn draw_frame(&mut self, game: &mut GameContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
         let s = S as f32;
@@ -179,7 +179,7 @@ impl Handler<WindowContext> for WindowHandler {
 
         for x in 0..GRID {
             for y in 0..GRID {
-                let cell = context.our_field.get(x, y);
+                let cell = game.our_field.get(x, y);
                 let x = x as f32 * s;
                 let y = y as f32 * s;
                 if let Some((dir, i)) = cell.ship {
@@ -192,98 +192,152 @@ impl Handler<WindowContext> for WindowHandler {
                 }
             }
         }
-        let [mx, my] = context.mouse;
-        let x = (mx / (context.width / 2.0) * GRID as f32) as usize;
-        let y = (my / context.height * GRID as f32) as usize;
-
-        if mx < context.width / 2.0 {
-            let mut error = !context.has_selected_ship_model() || context.our_field.has_collision(x, y, context.length, context.dir);
-
-            let color = if !error {
-                [0.0, 1.0, 1.0, 1.0]
-            } else {
-                [1.0, 0.0, 0.0, 1.0]
-            };
-            for i in 0..context.length {
-                let (dx, dy) = context.dir.to_vec();
-                let x = x as isize + dx * i as isize;
-                let y = y as isize + dy * i as isize;
-                if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                    canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+        for x in 0..GRID {
+            for y in 0..GRID {
+                let cell = game.enemy_field.get(x, y);
+                let x = x as f32 * s;
+                let y = y as f32 * s;
+                if let Some((dir, i)) = cell.ship {
+                    canvas.rect([x + game.width / 2.0, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
+                    canvas.text(&format!("{i}"), x + game.width / 2.0 + s / 2.0 - 3.0, y + s / 3.0 - 3.0, &FontParameters {
+                        size: 52,
+                        color: [1.0, 0.0, 1.0, 1.0],
+                        .. Default::default()
+                    });
                 }
             }
-        } else {
+        }
+
+        let [mx, my] = game.mouse;
+        let x = (mx / (game.width / 2.0) * GRID as f32) as usize;
+        let y = (my / game.height * GRID as f32) as usize;
+
+        if mx < game.width / 2.0 {
+            if game.start.is_none() {
+                let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
+
+                let color = if !error {
+                    [0.0, 1.0, 1.0, 1.0]
+                } else {
+                    [1.0, 0.0, 0.0, 1.0]
+                };
+                for i in 0..game.length {
+                    let (dx, dy) = game.dir.to_vec();
+                    let x = x as isize + dx * i as isize;
+                    let y = y as isize + dy * i as isize;
+                    if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                        canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+                    }
+                }
+            }
+        } else if game.start.is_some() {
             let color = [0.0, 1.0, 0.0, 1.0];
             canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
         }
 
-        canvas.rect([context.width / 2.0 - 1.0, 0.0, 2.0, context.height], [1.0; 4], &shader, &uniforms, &params);
+        canvas.rect([game.width / 2.0 - 1.0, 0.0, 2.0, game.height], [1.0; 4], &shader, &uniforms, &params);
     }
 
-    fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        let [mx, my] = context.mouse;
-        let [mx, my] = context.mouse;
-        let x = (mx / (context.width / 2.0) * GRID as f32) as usize;
-        let y = (my / context.height * GRID as f32) as usize;
+    fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
+        let [mx, my] = game.mouse;
+        let x = (mx / (game.width / 2.0) * GRID as f32) as usize;
+        let y = (my / game.height * GRID as f32) as usize;
 
-        if mx <= context.width / 2.0 {
+        if mx <= game.width / 2.0 {
             if button == MouseButton::Left && state == ElementState::Pressed {
-                let mut error = !context.has_selected_ship_model() || context.our_field.has_collision(x, y, context.length, context.dir);
+                let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
 
                 if !error {
-                    for i in 0..context.length {
-                        let (dx, dy) = context.dir.to_vec();
+                    for i in 0..game.length {
+                        let (dx, dy) = game.dir.to_vec();
                         let x = x as isize + dx * i as isize;
                         let y = y as isize + dy * i as isize;
                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                            context.our_field.set(x as usize, y as usize, Cell { ship: Some((context.dir, i)) });
+                            game.our_field.set(x as usize, y as usize, Cell { ship: Some((game.dir, i)) });
                         }
                     }
-                    context.inventory[context.length as usize - 1] -= 1;
+                    game.inventory[game.length as usize - 1] -= 1;
+
+                    if game.inventory[0] == 0
+                        && game.inventory[1] == 0
+                        && game.inventory[2] == 0
+                        && game.inventory[3] == 0 {
+
+                        game.start = Some(Instant::now());
+
+                        let mut inventory = [4, 3, 2, 1];
+
+                        for length in 1..=4 {
+                            while inventory[length as usize - 1] > 0 {
+                                let x = random::<usize>() % GRID;
+                                let y = random::<usize>() % GRID;
+                                let dir = match random::<u8>() % 4 {
+                                    0 => Dir::Up,
+                                    1 => Dir::Right,
+                                    2 => Dir::Down,
+                                    3 => Dir::Left,
+                                    other => unreachable!("Unknown random direction {other}")
+                                };
+
+                                if !game.enemy_field.has_collision(x, y, length, dir) {
+                                    for i in 0..length {
+                                        let (dx, dy) = dir.to_vec();
+                                        let x = x as isize + dx * i as isize;
+                                        let y = y as isize + dy * i as isize;
+                                        if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                                            game.enemy_field.set(x as usize, y as usize, Cell { ship: Some((dir, i)) });
+                                        }
+                                    }
+                                    inventory[length as usize - 1] -= 1;
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        } else {
+        } else if game.start.is_some() {
             let x = x - 10;
             println!("Clicked enemy field at {x} {y}")
         }
     }
 
-    fn on_mouse_move(&mut self, context: &mut WindowContext, x: f32, y: f32) {
-        context.mouse = [x, y];
+    fn on_mouse_move(&mut self, game: &mut GameContext, x: f32, y: f32) {
+        game.mouse = [x, y];
     }
 
-    fn on_keyboard_input(&mut self, context: &mut WindowContext, input: KeyboardInput, modifiers: ModifiersState) {
+    fn on_keyboard_input(&mut self, game: &mut GameContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
             if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
-                context.length = 1;
+                game.length = 1;
             }
             if key == VirtualKeyCode::Key2 && input.state == ElementState::Pressed {
-                context.length = 2;
+                game.length = 2;
             }
             if key == VirtualKeyCode::Key3 && input.state == ElementState::Pressed {
-                context.length = 3;
+                game.length = 3;
             }
             if key == VirtualKeyCode::Key4 && input.state == ElementState::Pressed {
-                context.length = 4;
+                game.length = 4;
             }
             if key == VirtualKeyCode::W || key == VirtualKeyCode::Up && input.state == ElementState::Pressed {
-                context.dir = Dir::Up;
+                game.dir = Dir::Up;
             }
             if key == VirtualKeyCode::A || key == VirtualKeyCode::Left && input.state == ElementState::Pressed {
-                context.dir = Dir::Left;
+                game.dir = Dir::Left;
             }
             if key == VirtualKeyCode::S || key == VirtualKeyCode::Down && input.state == ElementState::Pressed {
-                context.dir = Dir::Down;
+                game.dir = Dir::Down;
             }
             if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
-                context.dir = Dir::Right;
+                game.dir = Dir::Right;
             }
         }
     }
-    fn on_mouse_scroll(&mut self, context: &mut WindowContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
+
+    fn on_mouse_scroll(&mut self, game: &mut GameContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
             MouseScrollDelta::LineDelta(_, y) => {
-                context.length = ((context.length as f32 + y) as u8).clamp(1, 4)
+                game.length = ((game.length as f32 + y) as u8).clamp(1, 4)
             }
             _ => {}
         }
