@@ -30,7 +30,7 @@ mod audio;
 
 const GRID: usize = 10;
 const S: u32 = 32;
-const W: u32 = S * GRID as u32;
+const W: u32 = 2 * S * GRID as u32;
 const H: u32 = S * GRID as u32;
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
@@ -40,12 +40,58 @@ struct WindowContext {
     width: f32,
     height: f32,
     mouse: [f32; 2],
-    grid: [[Cell; GRID]; GRID],
-    inventory: [usize;4],
+    our_field: Field,
+    enemy_field: Field,
+    inventory: [u8; 4],
     game_over: bool,
     sound_system: SoundSystem,
     length: u8,
     dir: Dir,
+}
+
+struct Field {
+    cells: [[Cell; GRID]; GRID]
+}
+
+impl Field {
+    fn new() -> Field {
+        Field {
+            cells: [[Cell { ship: None }; GRID]; GRID]
+        }
+    }
+
+    fn get(&self, x: usize, y: usize) -> &Cell {
+        &self.cells[x][y]
+    }
+
+    fn set(&mut self, x: usize, y: usize, cell: Cell) {
+        self.cells[x][y] = cell;
+    }
+
+    fn has_collision(&self, x: usize, y: usize, length: u8, dir: Dir) -> bool {
+        for i in 0..length {
+            let (dx, dy) = dir.to_vec();
+            let x = x as isize + dx * i as isize;
+            let y = y as isize + dy * i as isize;
+            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                for ddx in -1..=1 {
+                    for ddy in -1..=1 {
+                        let x = x as i32 + ddx;
+                        let y = y as i32 + ddy;
+                        if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
+                            let cell = &self.cells[x as usize][y as usize];
+                            if cell.ship.is_some() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
 impl Context for WindowContext {
@@ -60,7 +106,8 @@ impl Context for WindowContext {
         };
 
 
-        let mut grid = [[cell; GRID]; GRID];
+        let mut our_field = Field::new();
+        let mut enemy_field = Field::new();
 
         Self {
             start: None,
@@ -69,7 +116,8 @@ impl Context for WindowContext {
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            grid,
+            our_field,
+            enemy_field,
             sound_system,
             inventory: [4, 3, 2, 1],
             length: 1,
@@ -113,31 +161,6 @@ impl WindowContext {
     fn has_selected_ship_model(&self) -> bool {
         self.inventory[self.length as usize - 1] > 0
     }
-
-    fn has_collision(&self, x: usize, y: usize) -> bool {
-        for i in 0..self.length {
-            let (dx, dy) = self.dir.to_vec();
-            let x = x as isize + dx * i as isize;
-            let y = y as isize + dy * i as isize;
-            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                for ddx in -1..=1 {
-                    for ddy in -1..=1 {
-                        let x = x as i32 + ddx;
-                        let y = y as i32 + ddy;
-                        if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
-                            let cell = &self.grid[x as usize][y as usize];
-                            if cell.ship.is_some() {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            } else {
-                return true;
-            }
-        }
-        return false;
-    }
 }
 
 struct WindowHandler;
@@ -156,7 +179,7 @@ impl Handler<WindowContext> for WindowHandler {
 
         for x in 0..GRID {
             for y in 0..GRID {
-                let cell = &context.grid[x][y];
+                let cell = context.our_field.get(x, y);
                 let x = x as f32 * s;
                 let y = y as f32 * s;
                 if let Some((dir, i)) = cell.ship {
@@ -170,43 +193,58 @@ impl Handler<WindowContext> for WindowHandler {
             }
         }
         let [mx, my] = context.mouse;
-        let x = (mx / context.width * GRID as f32) as usize;
+        let x = (mx / (context.width / 2.0) * GRID as f32) as usize;
         let y = (my / context.height * GRID as f32) as usize;
 
-        let mut error = context.has_collision(x, y) || !context.has_selected_ship_model();
+        if mx < context.width / 2.0 {
+            let mut error = !context.has_selected_ship_model() || context.our_field.has_collision(x, y, context.length, context.dir);
 
-        let color = if !error {
-            [0.0, 1.0, 1.0, 1.0]
-        } else {
-            [1.0, 0.0, 0.0, 1.0]
-        };
-        for i in 0..context.length {
-            let (dx, dy) = context.dir.to_vec();
-            let x = x as isize + dx * i as isize;
-            let y = y as isize + dy * i as isize;
-            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+            let color = if !error {
+                [0.0, 1.0, 1.0, 1.0]
+            } else {
+                [1.0, 0.0, 0.0, 1.0]
+            };
+            for i in 0..context.length {
+                let (dx, dy) = context.dir.to_vec();
+                let x = x as isize + dx * i as isize;
+                let y = y as isize + dy * i as isize;
+                if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                    canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+                }
             }
+        } else {
+            let color = [0.0, 1.0, 0.0, 1.0];
+            canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
         }
+
+        canvas.rect([context.width / 2.0 - 1.0, 0.0, 2.0, context.height], [1.0; 4], &shader, &uniforms, &params);
     }
+
     fn on_mouse_button(&mut self, context: &mut WindowContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
         let [mx, my] = context.mouse;
-        let x = (mx / context.width * GRID as f32) as usize;
+        let [mx, my] = context.mouse;
+        let x = (mx / (context.width / 2.0) * GRID as f32) as usize;
         let y = (my / context.height * GRID as f32) as usize;
-        if button == MouseButton::Left && state == ElementState::Pressed {
-            let mut error = context.has_collision(x, y) || !context.has_selected_ship_model();
 
-            if !error {
-                for i in 0..context.length {
-                    let (dx, dy) = context.dir.to_vec();
-                    let x = x as isize + dx * i as isize;
-                    let y = y as isize + dy * i as isize;
-                    if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                        context.grid[x as usize][y as usize] = Cell { ship: Some((context.dir, i)) };
+        if mx <= context.width / 2.0 {
+            if button == MouseButton::Left && state == ElementState::Pressed {
+                let mut error = !context.has_selected_ship_model() || context.our_field.has_collision(x, y, context.length, context.dir);
+
+                if !error {
+                    for i in 0..context.length {
+                        let (dx, dy) = context.dir.to_vec();
+                        let x = x as isize + dx * i as isize;
+                        let y = y as isize + dy * i as isize;
+                        if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                            context.our_field.set(x as usize, y as usize, Cell { ship: Some((context.dir, i)) });
+                        }
                     }
+                    context.inventory[context.length as usize - 1] -= 1;
                 }
-                context.inventory[context.length as usize - 1] -= 1;
             }
+        } else {
+            let x = x - 10;
+            println!("Clicked enemy field at {x} {y}")
         }
     }
 
