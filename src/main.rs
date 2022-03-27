@@ -30,8 +30,8 @@ mod audio;
 
 const GRID: usize = 10;
 const S: u32 = 32;
-const W: u32 = 2 * S * GRID as u32;
-const H: u32 = S * GRID as u32;
+const W: u32 = 2 * S * GRID as u32 + 2 * S;
+const H: u32 = S * GRID as u32 + 2 * S;
 const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
 
 struct GameContext {
@@ -125,6 +125,18 @@ impl GameContext {
     fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {
 
     }
+
+    fn get_grid_coordinates(&self, x: f32, y: f32, w: f32, h: f32) -> Option<[usize; 2]> {
+        let [mx, my] = self.mouse;
+        if mx >= x && mx < x + w && my >= y && my < y + h {
+            Some([
+                ((mx - x) / w * GRID as f32) as usize,
+                ((my - y) / h * GRID as f32) as usize
+            ])
+        } else {
+            None
+        }
+    }
 }
 
 
@@ -178,6 +190,35 @@ impl Handler<GameContext> for WindowHandler {
         };
         let params = DrawParameters::default();
 
+        for i in 0..10 {
+            let y = i as f32 * s;
+            canvas.text(&format!("{i}"), s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &FontParameters {
+                size: 52,
+                color: [1.0;4],
+                .. Default::default()
+            });
+            canvas.text(&format!("{i}"), game.width - s + s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &FontParameters {
+                size: 52,
+                color: [1.0;4],
+                .. Default::default()
+            });
+        }
+
+        for c in 'A'..='J' {
+            let i = c as u32 - 'A' as u32;
+            let x = s + i as f32 * s;
+            canvas.text(&format!("{c}"), x + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &FontParameters {
+                size: 52,
+                color: [1.0;4],
+                .. Default::default()
+            });
+            canvas.text(&format!("{c}"), game.width / 2.0 + x - s + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &FontParameters {
+                size: 52,
+                color: [1.0;4],
+                .. Default::default()
+            });
+        }
+
         for x in 0..GRID {
             for y in 0..GRID {
                 let cell = game.our_field.get(x, y);
@@ -187,7 +228,7 @@ impl Handler<GameContext> for WindowHandler {
                 match cell {
                     Cell::Water => {},
                     Cell::Miss => {
-                        canvas.text("O", x + s / 2.0, y + s / 3.0, &FontParameters {
+                        canvas.text("O", x + s + s / 2.0, y + s + s / 3.0, &FontParameters {
                             size: 52,
                             color: [1.0; 4],
                             .. Default::default()
@@ -195,12 +236,12 @@ impl Handler<GameContext> for WindowHandler {
                     },
                     Cell::Ship { dir, length, fire } => {
                         if *fire {
-                            canvas.rect([x, y, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
                         } else {
-                            canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
-                            canvas.text(&format!("{length}"), x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                            canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
+                            canvas.text(&format!("{length}"), x + s + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
                                 size: 52,
-                                color: [1.0; 4],
+                                color: [0.0, 0.0, 0.0, 1.0],
                                 .. Default::default()
                             });
                         }
@@ -216,7 +257,7 @@ impl Handler<GameContext> for WindowHandler {
 
                 match cell {
                     Cell::Miss => {
-                        canvas.text("O", x + game.width / 2.0 + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                        canvas.text("O", x + game.width / 2.0 + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
                             size: 52,
                             color: [1.0; 4],
                             .. Default::default()
@@ -224,7 +265,7 @@ impl Handler<GameContext> for WindowHandler {
                     },
                     Cell::Ship { dir, length, fire } => {
                         if *fire {
-                            canvas.rect([x + game.width / 2.0, y, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
                         }
                     },
                     _ => {}
@@ -232,11 +273,7 @@ impl Handler<GameContext> for WindowHandler {
             }
         }
 
-        let [mx, my] = game.mouse;
-        let x = (mx / (game.width / 2.0) * GRID as f32) as usize;
-        let y = (my / game.height * GRID as f32) as usize;
-
-        if mx < game.width / 2.0 {
+        if let Some([x, y]) = game.get_grid_coordinates(s, s, game.width / 2.0 - s, game.height - 2.0 * s) {
             if game.start.is_none() {
                 let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
 
@@ -250,24 +287,28 @@ impl Handler<GameContext> for WindowHandler {
                     let x = x as isize + dx * i as isize;
                     let y = y as isize + dy * i as isize;
                     if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                        canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+                        canvas.rect([x as f32 * s + s, y as f32 * s + s, s, s], color, &*shader, &uniforms, &params);
                     }
                 }
             }
-        } else if game.start.is_some() {
-            let color = [0.0, 1.0, 0.0, 1.0];
-            canvas.rect([x as f32 * s, y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+        } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0, s, game.width / 2.0 - s, game.height - 2.0 * s) {
+            if game.start.is_some() {
+                let color = [0.0, 1.0, 0.0, 1.0];
+                canvas.rect([x as f32 * s + game.width / 2.0, y as f32 * s + s, s, s], color, &*shader, &uniforms, &params);
+            }
         }
 
-        canvas.rect([game.width / 2.0 - 1.0, 0.0, 2.0, game.height], [1.0; 4], &shader, &uniforms, &params);
+        // Field borders
+        canvas.rect([s, s, game.width - 2.0 * s, 2.0], [1.0; 4], &shader, &uniforms, &params);
+        canvas.rect([s - 1.0, s, 2.0, game.height - 2.0 * s], [1.0; 4], &shader, &uniforms, &params);
+        canvas.rect([game.width - s - 1.0, s, 2.0, game.height - 2.0 * s], [1.0; 4], &shader, &uniforms, &params);
+        canvas.rect([game.width / 2.0 - 1.0, s, 2.0, game.height - s], [1.0; 4], &shader, &uniforms, &params);
+        canvas.rect([s, game.height - s, game.width - 2.0 * s, 2.0], [1.0; 4], &shader, &uniforms, &params);
     }
 
     fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        let [mx, my] = game.mouse;
-        let x = (mx / (game.width / 2.0) * GRID as f32) as usize;
-        let y = (my / game.height * GRID as f32) as usize;
 
-        if mx <= game.width / 2.0 {
+        if let Some([x, y]) = game.get_grid_coordinates(S as f32, S as f32, game.width / 2.0 - S as f32, game.height - 2.0 * S as f32) {
             if button == MouseButton::Left && state == ElementState::Pressed {
                 let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
 
@@ -319,27 +360,26 @@ impl Handler<GameContext> for WindowHandler {
                     }
                 }
             }
-        } else if game.start.is_some() {
-            let x = x - 10;
-            let cell = game.enemy_field.get(x, y);
+        } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0, S as f32, game.width / 2.0 - S as f32, game.height - 2.0 * S as f32) {
+            if game.start.is_some() {
+                let cell = game.enemy_field.get(x, y);
 
-            match cell {
-                Cell::Water => {
-                    println!("Missed!");
-                    game.enemy_field.set(x, y, Cell::Miss)
-                },
-                Cell::Ship { fire, dir, length } if !*fire => {
-                    println!("Direct hit!");
-                    game.enemy_field.set(x, y, Cell::Ship {
-                        dir: *dir,
-                        length: *length,
-                        fire: true
-                    });
-                },
-                _ => {}
+                match cell {
+                    Cell::Water => {
+                        println!("Missed!");
+                        game.enemy_field.set(x, y, Cell::Miss)
+                    },
+                    Cell::Ship { fire, dir, length } if !*fire => {
+                        println!("Direct hit!");
+                        game.enemy_field.set(x, y, Cell::Ship {
+                            dir: *dir,
+                            length: *length,
+                            fire: true
+                        });
+                    },
+                    _ => {}
+                }
             }
-
-            println!("Clicked enemy field at {x} {y}")
         }
     }
 
