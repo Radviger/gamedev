@@ -66,6 +66,14 @@ impl Field {
         &self.cells[x][y]
     }
 
+    fn checked_get(&self, x: isize, y: isize) -> Option<&Cell> {
+        if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+            Some(self.get(x as usize, y as usize))
+        } else {
+            None
+        }
+    }
+
     fn set(&mut self, x: usize, y: usize, cell: Cell) {
         self.cells[x][y] = cell;
     }
@@ -149,7 +157,8 @@ enum Cell {
     Ship {
         dir: Dir,
         length: u8,
-        fire: bool
+        fire: bool,
+        destroyed: bool
     }
 }
 
@@ -249,9 +258,13 @@ impl Handler<GameContext> for WindowHandler {
                     Cell::Miss => {
                         canvas.text("O", x + s + s / 2.0, y + s + s / 3.0, &font);
                     },
-                    Cell::Ship { dir, length, fire } => {
+                    Cell::Ship { dir, length, fire, destroyed } => {
                         if *fire {
-                            canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            if *destroyed {
+                                canvas.rect([x + s, y + s, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            } else {
+                                canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            }
                         } else {
                             canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
                             canvas.text(&format!("{length}"), x + s + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
@@ -278,9 +291,19 @@ impl Handler<GameContext> for WindowHandler {
                             .. Default::default()
                         });
                     },
-                    Cell::Ship { dir, length, fire } => {
+                    Cell::Ship { dir, length, fire, destroyed } => {
                         if *fire {
-                            canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            if *destroyed {
+                                canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            } else {
+                                canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            }
+                        } else {
+                            canvas.text(&format!("{length}"), x + game.width / 2.0 + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
+                                size: 52,
+                                color: [0.0, 0.0, 0.0, 1.0],
+                                .. Default::default()
+                            });
                         }
                     },
                     _ => {}
@@ -332,7 +355,7 @@ impl Handler<GameContext> for WindowHandler {
                         let x = x as isize + dx * i as isize;
                         let y = y as isize + dy * i as isize;
                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                            game.our_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false });
+                            game.our_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false, destroyed: false });
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
@@ -364,7 +387,7 @@ impl Handler<GameContext> for WindowHandler {
                                         let x = x as isize + dx * i as isize;
                                         let y = y as isize + dy * i as isize;
                                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                                            game.enemy_field.set(x as usize, y as usize, Cell::Ship { dir: dir, length: i, fire: false });
+                                            game.enemy_field.set(x as usize, y as usize, Cell::Ship { dir, length: i, fire: false, destroyed: false });
                                         }
                                     }
                                     inventory[length as usize - 1] -= 1;
@@ -386,16 +409,64 @@ impl Handler<GameContext> for WindowHandler {
                         }
                         game.enemy_field.set(x, y, Cell::Miss)
                     },
-                    Cell::Ship { fire, dir, length } if !*fire => {
+                    Cell::Ship { fire, dir, length, destroyed } if !*fire => {
                         println!("Direct hit!");
                         if let Err(e) = game.sound_system.play_streaming_bytes(&HIT) {
                             eprintln!("Sound system error: {:?}", e)
                         }
+
+                        let (dx, dy) = dir.to_vec();
+                        let dir = *dir;
+                        let length = *length;
+
                         game.enemy_field.set(x, y, Cell::Ship {
-                            dir: *dir,
-                            length: *length,
-                            fire: true
+                            dir,
+                            length,
+                            fire: true,
+                            destroyed: false
                         });
+
+                        let mut destroyed = true;
+                        let length = length as isize;
+
+                        for i in -length..(4 - length) {
+                            let x = x as isize + dx * i as isize;
+                            let y = y as isize + dy * i as isize;
+                            if let Some(cell) = game.enemy_field.checked_get(x, y) {
+                                if let Cell::Ship { fire, .. } = cell {
+                                    if !*fire {
+                                        destroyed = false;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if destroyed {
+                            println!("Destroying ship facing at {:?} from len: {}", dir, length);
+                            for i in -length..(4 - length) {
+                                let x = x as isize + dx * i as isize;
+                                let y = y as isize + dy * i as isize;
+                                if let Some(cell) = game.enemy_field.checked_get(x, y) {
+                                    if let Cell::Ship { dir, length, .. } = cell {
+                                        game.enemy_field.set(x as usize, y as usize, Cell::Ship {
+                                            dir: *dir,
+                                            length: *length,
+                                            fire: true,
+                                            destroyed: true
+                                        });
+                                    } else {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
                     },
                     _ => {}
                 }
