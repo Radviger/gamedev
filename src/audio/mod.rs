@@ -27,6 +27,17 @@ impl SoundSystem {
         })
     }
 
+    fn cleanup(&mut self) {
+        self.streaming_sources.retain(|s, e| {
+            if e.state() == SourceState::Stopped {
+                println!("Sound {} done playing!", s);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     pub fn new_source<F, B>(&mut self, data: B, looping: bool) -> AltoResult<StaticSource> where F: SampleFrame, B: AsBufferData<F> {
         let buffer = self.context.new_buffer(data, 44_000)?;
         let buffer = Arc::new(buffer);
@@ -36,7 +47,7 @@ impl SoundSystem {
         Ok(source)
     }
 
-    pub fn play<F, B>(&mut self, data: B, looping: bool, streaming: bool) -> AltoResult<Uuid> where F: SampleFrame, B: AsBufferData<F> {
+    pub fn play<F, B>(&mut self, data: B, looping: bool) -> Result<Uuid, PlaybackError> where F: SampleFrame, B: AsBufferData<F> {
         let mut source = self.new_source(data, looping)?;
         source.play();
         let id = Uuid::new_v4();
@@ -57,6 +68,7 @@ impl SoundSystem {
     }
 
     pub fn play_streaming_reader<T>(&mut self, mut reader: OggStreamReader<T>) -> Result<Uuid, PlaybackError> where T: Read + Seek {
+        self.cleanup();
         let mut n = 0;
         let mut len_play = 0.0;
         let sample_rate = reader.ident_hdr.audio_sample_rate as i32;
