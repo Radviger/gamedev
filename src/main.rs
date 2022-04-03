@@ -190,33 +190,23 @@ impl Handler<GameContext> for WindowHandler {
         };
         let params = DrawParameters::default();
 
+        let font = FontParameters {
+            size: 52,
+            color: [1.0;4],
+            .. Default::default()
+        };
+
         for i in 0..10 {
             let y = i as f32 * s;
-            canvas.text(&format!("{i}"), s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &FontParameters {
-                size: 52,
-                color: [1.0;4],
-                .. Default::default()
-            });
-            canvas.text(&format!("{i}"), game.width - s + s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &FontParameters {
-                size: 52,
-                color: [1.0;4],
-                .. Default::default()
-            });
+            canvas.text(&format!("{i}"), s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &font);
+            canvas.text(&format!("{i}"), game.width - s + s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &font);
         }
 
         for c in 'A'..='J' {
             let i = c as u32 - 'A' as u32;
             let x = s + i as f32 * s;
-            canvas.text(&format!("{c}"), x + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &FontParameters {
-                size: 52,
-                color: [1.0;4],
-                .. Default::default()
-            });
-            canvas.text(&format!("{c}"), game.width / 2.0 + x - s + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &FontParameters {
-                size: 52,
-                color: [1.0;4],
-                .. Default::default()
-            });
+            canvas.text(&format!("{c}"), x + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &font);
+            canvas.text(&format!("{c}"), game.width / 2.0 + x - s + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &font);
         }
 
         for x in 0..GRID {
@@ -228,11 +218,7 @@ impl Handler<GameContext> for WindowHandler {
                 match cell {
                     Cell::Water => {},
                     Cell::Miss => {
-                        canvas.text("O", x + s + s / 2.0, y + s + s / 3.0, &FontParameters {
-                            size: 52,
-                            color: [1.0; 4],
-                            .. Default::default()
-                        });
+                        canvas.text("O", x + s + s / 2.0, y + s + s / 3.0, &font);
                     },
                     Cell::Ship { dir, length, fire } => {
                         if *fire {
