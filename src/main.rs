@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
+use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -32,7 +33,8 @@ const GRID: usize = 10;
 const S: u32 = 32;
 const W: u32 = 2 * S * GRID as u32 + 2 * S;
 const H: u32 = S * GRID as u32 + 2 * S;
-const EAT: &[u8] = include_bytes!("../resources/sounds/eat.ogg");
+const MISS: &[u8] = include_bytes!("../resources/sounds/miss.ogg");
+const HIT: &[u8] = include_bytes!("../resources/sounds/hit.ogg");
 
 struct GameContext {
     start: Option<Instant>,
@@ -168,6 +170,33 @@ impl Dir {
             Dir::Right => (1, 0)
         }
     }
+
+    fn clockwise(&self) -> Self {
+        match self {
+            Dir::Up => Dir::Right,
+            Dir::Right => Dir::Down,
+            Dir::Down => Dir::Left,
+            Dir::Left => Dir::Up
+        }
+    }
+
+    fn counter_clockwise(&self) -> Self {
+        match self {
+            Dir::Up => Dir::Left,
+            Dir::Left => Dir::Down,
+            Dir::Down => Dir::Right,
+            Dir::Right => Dir::Up
+        }
+    }
+
+    fn opposite(&self) -> Self {
+        match self {
+            Dir::Up => Dir::Down,
+            Dir::Left => Dir::Right,
+            Dir::Down => Dir::Up,
+            Dir::Right => Dir::Left
+        }
+    }
 }
 
 impl GameContext {
@@ -293,7 +322,6 @@ impl Handler<GameContext> for WindowHandler {
     }
 
     fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-
         if let Some([x, y]) = game.get_grid_coordinates(S as f32, S as f32, game.width / 2.0 - S as f32, game.height - 2.0 * S as f32) {
             if button == MouseButton::Left && state == ElementState::Pressed {
                 let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
@@ -353,10 +381,16 @@ impl Handler<GameContext> for WindowHandler {
                 match cell {
                     Cell::Water => {
                         println!("Missed!");
+                        if let Err(e) = game.sound_system.play_streaming_bytes(&MISS) {
+                            eprintln!("Sound system error: {:?}", e)
+                        }
                         game.enemy_field.set(x, y, Cell::Miss)
                     },
                     Cell::Ship { fire, dir, length } if !*fire => {
                         println!("Direct hit!");
+                        if let Err(e) = game.sound_system.play_streaming_bytes(&HIT) {
+                            eprintln!("Sound system error: {:?}", e)
+                        }
                         game.enemy_field.set(x, y, Cell::Ship {
                             dir: *dir,
                             length: *length,
@@ -405,7 +439,15 @@ impl Handler<GameContext> for WindowHandler {
     fn on_mouse_scroll(&mut self, game: &mut GameContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
         match delta {
             MouseScrollDelta::LineDelta(_, y) => {
-                game.length = ((game.length as f32 + y) as u8).clamp(1, 4)
+                if modifiers.shift() {
+                    if y > 0.0 {
+                        game.dir = game.dir.clockwise();
+                    } else {
+                        game.dir = game.dir.counter_clockwise();
+                    }
+                } else {
+                    game.length = ((game.length as f32 + y) as u8).clamp(1, 4)
+                }
             }
             _ => {}
         }
