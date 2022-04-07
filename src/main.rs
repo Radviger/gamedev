@@ -48,7 +48,8 @@ struct GameContext {
     game_over: bool,
     sound_system: SoundSystem,
     length: u8,
-    dir: Dir
+    dir: Dir,
+    timer: f32
 }
 
 struct Field {
@@ -72,6 +73,59 @@ impl Field {
         } else {
             None
         }
+    }
+
+    fn modify_all<M>(&mut self, x: usize, y: usize, start_len: i8, end_len: i8, dir: Dir, modifier: M) where M: Fn(&mut Cell, i8) {
+        for i in start_len..end_len {
+            let (dx, dy) = dir.to_vec();
+            let x = x as isize + dx * i as isize;
+            let y = y as isize + dy * i as isize;
+            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                modifier(&mut self.cells[x as usize][y as usize], i);
+            }
+        }
+    }
+
+    fn check_and_modify_all<C, M>(&mut self, x: usize, y: usize, start_len: i8, end_len: i8, dir: Dir, check: C, modifier: M)
+        where
+            C: Fn(&Cell) -> bool,
+            M: Fn(&mut Cell, i8)
+    {
+
+        let mut success = true;
+        let (dx, dy) = dir.to_vec();
+
+        for i in start_len..end_len {
+            let x = x as isize + dx * i as isize;
+            let y = y as isize + dy * i as isize;
+            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                let cell = &self.cells[x as usize][y as usize];
+                if !check(cell) {
+                    success = false;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if success {
+            for i in start_len..end_len {
+                let x = x as isize + dx * i as isize;
+                let y = y as isize + dy * i as isize;
+                if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                    let cell = &mut self.cells[x as usize][y as usize];
+                    if check(cell) {
+                        modifier(cell, i);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
     }
 
     fn set(&mut self, x: usize, y: usize, cell: Cell) {
@@ -127,6 +181,7 @@ impl Context for GameContext {
             inventory: [4, 3, 2, 1],
             length: 4,
             dir: Dir::Down,
+            timer: 0.0
         }
     }
 }
@@ -218,15 +273,21 @@ struct WindowHandler;
 
 impl Handler<GameContext> for WindowHandler {
     fn draw_frame(&mut self, game: &mut GameContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
-        canvas.clear((0.0, 0.0, 1.0, 1.0), 1.0);
+        canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
+
+        game.timer += time_elapsed;
 
         let s = S as f32;
 
-        let shader = canvas.shaders().borrow().default();
         let uniforms = uniform! {
-            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport())
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
+            time: game.timer
         };
         let params = DrawParameters::default();
+        let shader = canvas.shaders().borrow().water();
+        canvas.textured_rect([0.0, 0.0, game.width, game.height], [1.0; 4], &shader, &uniforms, &params);
+
+        let shader = canvas.shaders().borrow().default();
 
         let font = FontParameters {
             size: 52,
@@ -382,14 +443,9 @@ impl Handler<GameContext> for WindowHandler {
                                 };
 
                                 if !game.enemy_field.has_collision(x, y, length, dir) {
-                                    for i in 0..length {
-                                        let (dx, dy) = dir.to_vec();
-                                        let x = x as isize + dx * i as isize;
-                                        let y = y as isize + dy * i as isize;
-                                        if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                                            game.enemy_field.set(x as usize, y as usize, Cell::Ship { dir, length: i, fire: false, destroyed: false });
-                                        }
-                                    }
+                                    game.enemy_field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
+                                        *cell = Cell::Ship { dir, length: i as u8, fire: false, destroyed: false };
+                                    });
                                     inventory[length as usize - 1] -= 1;
                                 }
                             }
@@ -415,7 +471,6 @@ impl Handler<GameContext> for WindowHandler {
                             eprintln!("Sound system error: {:?}", e)
                         }
 
-                        let (dx, dy) = dir.to_vec();
                         let dir = *dir;
                         let length = *length;
 
@@ -426,47 +481,22 @@ impl Handler<GameContext> for WindowHandler {
                             destroyed: false
                         });
 
-                        let mut destroyed = true;
-                        let length = length as isize;
-
-                        for i in -length..(4 - length) {
-                            let x = x as isize + dx * i as isize;
-                            let y = y as isize + dy * i as isize;
-                            if let Some(cell) = game.enemy_field.checked_get(x, y) {
-                                if let Cell::Ship { fire, .. } = cell {
-                                    if !*fire {
-                                        destroyed = false;
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
+                        fn is_ship_burning(cell: &Cell) -> bool {
+                            if let Cell::Ship { fire, .. } = cell {
+                                *fire
                             } else {
-                                break;
+                                false
                             }
                         }
 
-                        if destroyed {
-                            println!("Destroying ship facing at {:?} from len: {}", dir, length);
-                            for i in -length..(4 - length) {
-                                let x = x as isize + dx * i as isize;
-                                let y = y as isize + dy * i as isize;
-                                if let Some(cell) = game.enemy_field.checked_get(x, y) {
-                                    if let Cell::Ship { dir, length, .. } = cell {
-                                        game.enemy_field.set(x as usize, y as usize, Cell::Ship {
-                                            dir: *dir,
-                                            length: *length,
-                                            fire: true,
-                                            destroyed: true
-                                        });
-                                    } else {
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
+                        fn destroy_ship(cell: &mut Cell, i: i8) {
+                            if let Cell::Ship { destroyed, .. } = cell {
+                                *destroyed = true;
                             }
                         }
+
+                        let length = length as i8;
+                        game.enemy_field.check_and_modify_all(x, y, -length, 4 - length, dir, is_ship_burning, destroy_ship);
                     },
                     _ => {}
                 }

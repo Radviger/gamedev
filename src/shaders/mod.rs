@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 use glium::{Display, Program, ProgramCreationError};
-use msgbox::IconType;
 
 pub fn compile(display: &Display, vertex: &str, fragment: &str, geometry: Option<&str>) -> Program {
     match Program::from_source(display, vertex, fragment, geometry) {
@@ -9,8 +8,7 @@ pub fn compile(display: &Display, vertex: &str, fragment: &str, geometry: Option
         Err(e) => {
             match e {
                 ProgramCreationError::CompilationError(message, shader) => {
-                    let message = format!("Error compiling {:?} Shader from source:\n\n{}", shader, message);
-                    msgbox::create("Shader compilation error", &message, IconType::Error).unwrap();
+                    eprintln!("Error compiling {:?} Shader from source:\n\n{}", shader, message);
                     Err(ProgramCreationError::CompilationError(message, shader)).unwrap()
                 }
                 other => {
@@ -47,11 +45,11 @@ impl ShaderManager {
         programs.insert("default".into(), Rc::new(Box::new(
             shader!(display, "default")
         )));
-        programs.insert("light".into(), Rc::new(Box::new(
-            shader!(display, "light")
-        )));
         programs.insert("textured".into(), Rc::new(Box::new(
             shader!(display, "textured")
+        )));
+        programs.insert("water".into(), Rc::new(Box::new(
+            shader!(display, "water")
         )));
 
         ShaderManager {
@@ -74,5 +72,9 @@ impl ShaderManager {
 
     pub fn textured(&self) -> Rc<Box<Program>> {
         self.programs.get("textured".into()).cloned().expect("Textured shader is missing")
+    }
+
+    pub fn water(&self) -> Rc<Box<Program>> {
+        self.programs.get("water".into()).cloned().expect("Water shader is missing")
     }
 }
