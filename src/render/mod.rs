@@ -280,7 +280,6 @@ impl<S> Canvas<S> where S: Surface {
     pub fn rect<B, C, U>(&mut self, bounds: B, color: C, program: &Program, uniforms: &U,
                          params: &DrawParameters)
         where B: Into<[f32; 4]>, C: Into<[f32; 4]>, U: Uniforms {
-
         let [x, y, w, h] = bounds.into();
         let color = color.into();
 
@@ -292,6 +291,23 @@ impl<S> Canvas<S> where S: Surface {
                 Vertex::pos([x + w, y, 0.0]).color(color),
                 Vertex::pos([x + w, y + h, 0.0]).color(color),
                 Vertex::pos([x, y + h, 0.0]).color(color),
+            ]
+        )
+    }
+
+    pub fn line<F, T, C, U>(&mut self, from: F, to: T, color: C, program: &Program, uniforms: &U, params: &DrawParameters)
+        where F: Into<[f32;2]>, T: Into<[f32;2]>, C: Into<[f32; 4]>, U: Uniforms {
+
+        let [x1, y1] = from.into();
+        let [x2, y2] = to.into();
+        let color = color.into();
+
+        DrawBuffer::draw_once(
+            &PrimitiveType::LinesList, false, false, &self.display.clone(),
+            &mut self.target, program, uniforms, params,
+            &[
+                Vertex::pos([x1, y1, 0.0]).color(color),
+                Vertex::pos([x2, y2, 0.0]).color(color)
             ]
         )
     }

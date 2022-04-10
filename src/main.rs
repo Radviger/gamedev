@@ -31,10 +31,12 @@ mod audio;
 
 const GRID: usize = 10;
 const S: u32 = 32;
-const W: u32 = 2 * S * GRID as u32 + 2 * S;
+const W: u32 = 2 * S * GRID as u32 + 4 * S;
 const H: u32 = S * GRID as u32 + 2 * S;
 const MISS: &[u8] = include_bytes!("../resources/sounds/miss.ogg");
 const HIT: &[u8] = include_bytes!("../resources/sounds/hit.ogg");
+const CLICK: &[u8] = include_bytes!("../resources/sounds/click.ogg");
+const SELECT: &[u8] = include_bytes!("../resources/sounds/select.ogg");
 
 struct GameContext {
     start: Option<Instant>,
@@ -56,6 +58,17 @@ struct Field {
     cells: [[Cell; GRID]; GRID]
 }
 
+
+enum GridSelection {
+    Placement {
+        dir: Dir,
+        length: u8,
+        has_ship: bool
+    },
+    Shoot,
+    None
+}
+
 impl Field {
     fn new() -> Field {
         Field {
@@ -65,6 +78,10 @@ impl Field {
 
     fn get(&self, x: usize, y: usize) -> &Cell {
         &self.cells[x][y]
+    }
+
+    fn get_mut(&mut self, x: usize, y: usize) -> &mut Cell {
+        &mut self.cells[x][y]
     }
 
     fn checked_get(&self, x: isize, y: isize) -> Option<&Cell> {
@@ -156,6 +173,106 @@ impl Field {
         }
         return false;
     }
+
+    fn draw(&self, x: f32, y: f32, canvas: &mut Canvas<Frame>, time: f32, mouse: [f32; 2], selection: GridSelection, hidden: bool) {
+        let s = S as f32;
+        let field_size = GRID as f32 * s;
+
+        let uniforms = uniform! {
+            mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
+            time: time
+        };
+        let params = DrawParameters::default();
+        let shader = canvas.shaders().borrow().default();
+
+        let font = FontParameters {
+            size: 52,
+            color: [1.0;4],
+            .. Default::default()
+        };
+
+        for i in 0..10 {
+            let y = y + i as f32 * s;
+            canvas.text(&format!("{i}"), x - s + s / 2.0 - 1.0, y + s / 3.0 - 5.0, &font);
+        }
+
+        for c in 'A'..='J' {
+            let i = c as u32 - 'A' as u32;
+            let x = x + i as f32 * s;
+            canvas.text(&format!("{c}"), x + s / 2.0 - 1.0, y + field_size + s / 3.0 - 5.0, &font);
+        }
+
+        for grid_x in 0..GRID {
+            for grid_y in 0..GRID {
+                let cell = self.get(grid_x, grid_y);
+                let x = x + grid_x as f32 * s;
+                let y = y + grid_y as f32 * s;
+
+                match cell {
+                    Cell::Water => {},
+                    Cell::Miss => {
+                        canvas.text("O", x + s / 2.0, y + s / 3.0, &font);
+                    },
+                    Cell::Ship { dir, length, fire, destroyed } => {
+                        if *fire {
+                            if *destroyed {
+                                canvas.rect([x, y, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            } else {
+                                canvas.rect([x, y, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
+                            }
+                        } else if !hidden {
+                            canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
+                            /*canvas.text(&format!("{length}"), x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                                size: 52,
+                                color: [0.0, 0.0, 0.0, 1.0],
+                                .. Default::default()
+                            });*/
+                        }
+                    }
+                }
+            }
+        }
+
+        let [mx, my] = mouse;
+        if mx >= x && mx < x + field_size && my >= y && my < y + field_size {
+            let grid_x = ((mx - x) / field_size * GRID as f32) as usize;
+            let grid_y = ((my - y) / field_size * GRID as f32) as usize;
+
+            match selection {
+                GridSelection::Placement { dir, length, has_ship } => {
+                    let error = !has_ship || self.has_collision(grid_x, grid_y, length, dir);
+                    let color = if !error {
+                        [0.0, 1.0, 1.0, 1.0]
+                    } else {
+                        [1.0, 0.0, 0.0, 1.0]
+                    };
+                    for i in 0..length {
+                        let (dx, dy) = dir.to_vec();
+                        let sub_x = grid_x as isize + dx * i as isize;
+                        let sub_y = grid_y as isize + dy * i as isize;
+                        if sub_x >= 0 && sub_y >= 0 && sub_x < GRID as isize && sub_y < GRID as isize {
+                            canvas.rect([x + sub_x as f32 * s, y + sub_y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+                        }
+                    }
+                }
+                GridSelection::Shoot => {
+                    let color = [0.0, 1.0, 0.0, 1.0];
+                    canvas.rect([x + grid_x as f32 * s, y + grid_y as f32 * s, s, s], color, &*shader, &uniforms, &params);
+                }
+                GridSelection::None => {}
+            }
+
+        }
+
+        for grid_x in 0..=GRID {
+            let x = x + grid_x as f32 * s;
+            canvas.line([x, y], [x, y + field_size], [1.0; 4], &*shader, &uniforms, &params);
+        }
+        for grid_y in 0..=GRID {
+            let y = y + grid_y as f32 * s;
+            canvas.line([x, y], [x + field_size, y], [1.0; 4], &*shader, &uniforms, &params);
+        }
+    }
 }
 
 impl Context for GameContext {
@@ -189,6 +306,12 @@ impl Context for GameContext {
 impl GameContext {
     fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {
 
+    }
+
+    fn play_sound(&mut self, sound: &[u8]) {
+        if let Err(e) = self.sound_system.play_streaming_bytes(sound) {
+            eprintln!("Sound system error: {:?}", e)
+        }
     }
 
     fn get_grid_coordinates(&self, x: f32, y: f32, w: f32, h: f32) -> Option<[usize; 2]> {
@@ -287,126 +410,31 @@ impl Handler<GameContext> for WindowHandler {
         let shader = canvas.shaders().borrow().water();
         canvas.textured_rect([0.0, 0.0, game.width, game.height], [1.0; 4], &shader, &uniforms, &params);
 
-        let shader = canvas.shaders().borrow().default();
+        let game_started = game.start.is_some();
+        let has_ship = game.has_selected_ship_model();
 
-        let font = FontParameters {
-            size: 52,
-            color: [1.0;4],
-            .. Default::default()
-        };
-
-        for i in 0..10 {
-            let y = i as f32 * s;
-            canvas.text(&format!("{i}"), s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &font);
-            canvas.text(&format!("{i}"), game.width - s + s / 2.0 - 1.0, y + s + s / 3.0 - 5.0, &font);
-        }
-
-        for c in 'A'..='J' {
-            let i = c as u32 - 'A' as u32;
-            let x = s + i as f32 * s;
-            canvas.text(&format!("{c}"), x + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &font);
-            canvas.text(&format!("{c}"), game.width / 2.0 + x - s + s / 2.0 - 1.0, game.height - s + s / 3.0 - 5.0, &font);
-        }
-
-        for x in 0..GRID {
-            for y in 0..GRID {
-                let cell = game.our_field.get(x, y);
-                let x = x as f32 * s;
-                let y = y as f32 * s;
-
-                match cell {
-                    Cell::Water => {},
-                    Cell::Miss => {
-                        canvas.text("O", x + s + s / 2.0, y + s + s / 3.0, &font);
-                    },
-                    Cell::Ship { dir, length, fire, destroyed } => {
-                        if *fire {
-                            if *destroyed {
-                                canvas.rect([x + s, y + s, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
-                            } else {
-                                canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
-                            }
-                        } else {
-                            canvas.rect([x + s, y + s, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
-                            canvas.text(&format!("{length}"), x + s + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
-                                size: 52,
-                                color: [0.0, 0.0, 0.0, 1.0],
-                                .. Default::default()
-                            });
-                        }
-                    }
-                }
+        game.our_field.draw(s, s, canvas, game.timer, game.mouse, if !game_started {
+            GridSelection::Placement {
+                dir: game.dir,
+                length: game.length,
+                has_ship
             }
-        }
-        for x in 0..GRID {
-            for y in 0..GRID {
-                let cell = game.enemy_field.get(x, y);
-                let x = x as f32 * s;
-                let y = y as f32 * s;
+        } else {
+            GridSelection::None
+        }, false);
 
-                match cell {
-                    Cell::Miss => {
-                        canvas.text("O", x + game.width / 2.0 + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
-                            size: 52,
-                            color: [1.0; 4],
-                            .. Default::default()
-                        });
-                    },
-                    Cell::Ship { dir, length, fire, destroyed } => {
-                        if *fire {
-                            if *destroyed {
-                                canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
-                            } else {
-                                canvas.rect([x + game.width / 2.0, y + s, s, s], [1.0, 1.0, 0.0, 1.0], &*shader, &uniforms, &params);
-                            }
-                        } else {
-                            canvas.text(&format!("{length}"), x + game.width / 2.0 + s / 2.0 - 3.0, y + s + s / 3.0 - 5.0, &FontParameters {
-                                size: 52,
-                                color: [0.0, 0.0, 0.0, 1.0],
-                                .. Default::default()
-                            });
-                        }
-                    },
-                    _ => {}
-                }
-            }
-        }
-
-        if let Some([x, y]) = game.get_grid_coordinates(s, s, game.width / 2.0 - s, game.height - 2.0 * s) {
-            if game.start.is_none() {
-                let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
-
-                let color = if !error {
-                    [0.0, 1.0, 1.0, 1.0]
-                } else {
-                    [1.0, 0.0, 0.0, 1.0]
-                };
-                for i in 0..game.length {
-                    let (dx, dy) = game.dir.to_vec();
-                    let x = x as isize + dx * i as isize;
-                    let y = y as isize + dy * i as isize;
-                    if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                        canvas.rect([x as f32 * s + s, y as f32 * s + s, s, s], color, &*shader, &uniforms, &params);
-                    }
-                }
-            }
-        } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0, s, game.width / 2.0 - s, game.height - 2.0 * s) {
-            if game.start.is_some() {
-                let color = [0.0, 1.0, 0.0, 1.0];
-                canvas.rect([x as f32 * s + game.width / 2.0, y as f32 * s + s, s, s], color, &*shader, &uniforms, &params);
-            }
-        }
-
-        // Field borders
-        canvas.rect([s, s, game.width - 2.0 * s, 2.0], [1.0; 4], &shader, &uniforms, &params);
-        canvas.rect([s - 1.0, s, 2.0, game.height - 2.0 * s], [1.0; 4], &shader, &uniforms, &params);
-        canvas.rect([game.width - s - 1.0, s, 2.0, game.height - 2.0 * s], [1.0; 4], &shader, &uniforms, &params);
-        canvas.rect([game.width / 2.0 - 1.0, s, 2.0, game.height - s], [1.0; 4], &shader, &uniforms, &params);
-        canvas.rect([s, game.height - s, game.width - 2.0 * s, 2.0], [1.0; 4], &shader, &uniforms, &params);
+        game.enemy_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, if game_started {
+            GridSelection::Shoot
+        } else {
+            GridSelection::None
+        }, true);
     }
 
     fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
-        if let Some([x, y]) = game.get_grid_coordinates(S as f32, S as f32, game.width / 2.0 - S as f32, game.height - 2.0 * S as f32) {
+        let s = S as f32;
+        let field_size = GRID as f32 * s;
+
+        if let Some([x, y]) = game.get_grid_coordinates(s, s, field_size, field_size) {
             if button == MouseButton::Left && state == ElementState::Pressed {
                 let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
 
@@ -420,6 +448,8 @@ impl Handler<GameContext> for WindowHandler {
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
+
+                    game.play_sound(&CLICK);
 
                     if game.inventory[0] == 0
                         && game.inventory[1] == 0
@@ -453,33 +483,20 @@ impl Handler<GameContext> for WindowHandler {
                     }
                 }
             }
-        } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0, S as f32, game.width / 2.0 - S as f32, game.height - 2.0 * S as f32) {
+        } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0 + s, s, field_size, field_size) {
             if game.start.is_some() {
-                let cell = game.enemy_field.get(x, y);
+                let cell = game.enemy_field.get_mut(x, y);
 
                 match cell {
                     Cell::Water => {
                         println!("Missed!");
-                        if let Err(e) = game.sound_system.play_streaming_bytes(&MISS) {
-                            eprintln!("Sound system error: {:?}", e)
-                        }
+                        game.play_sound(&MISS);
                         game.enemy_field.set(x, y, Cell::Miss)
                     },
                     Cell::Ship { fire, dir, length, destroyed } if !*fire => {
                         println!("Direct hit!");
-                        if let Err(e) = game.sound_system.play_streaming_bytes(&HIT) {
-                            eprintln!("Sound system error: {:?}", e)
-                        }
 
-                        let dir = *dir;
-                        let length = *length;
-
-                        game.enemy_field.set(x, y, Cell::Ship {
-                            dir,
-                            length,
-                            fire: true,
-                            destroyed: false
-                        });
+                        *fire = true;
 
                         fn is_ship_burning(cell: &Cell) -> bool {
                             if let Cell::Ship { fire, .. } = cell {
@@ -495,8 +512,11 @@ impl Handler<GameContext> for WindowHandler {
                             }
                         }
 
-                        let length = length as i8;
+                        let dir = *dir;
+                        let length = *length as i8;
                         game.enemy_field.check_and_modify_all(x, y, -length, 4 - length, dir, is_ship_burning, destroy_ship);
+
+                        game.play_sound(&HIT);
                     },
                     _ => {}
                 }
@@ -510,29 +530,41 @@ impl Handler<GameContext> for WindowHandler {
 
     fn on_keyboard_input(&mut self, game: &mut GameContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
+            let mut click = false;
             if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
                 game.length = 1;
+                click = true;
             }
             if key == VirtualKeyCode::Key2 && input.state == ElementState::Pressed {
                 game.length = 2;
+                click = true;
             }
             if key == VirtualKeyCode::Key3 && input.state == ElementState::Pressed {
                 game.length = 3;
+                click = true;
             }
             if key == VirtualKeyCode::Key4 && input.state == ElementState::Pressed {
                 game.length = 4;
+                click = true;
             }
             if key == VirtualKeyCode::W || key == VirtualKeyCode::Up && input.state == ElementState::Pressed {
                 game.dir = Dir::Up;
+                click = true;
             }
             if key == VirtualKeyCode::A || key == VirtualKeyCode::Left && input.state == ElementState::Pressed {
                 game.dir = Dir::Left;
+                click = true;
             }
             if key == VirtualKeyCode::S || key == VirtualKeyCode::Down && input.state == ElementState::Pressed {
                 game.dir = Dir::Down;
+                click = true;
             }
             if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
                 game.dir = Dir::Right;
+                click = true;
+            }
+            if click {
+                game.play_sound(&SELECT);
             }
         }
     }
@@ -549,6 +581,7 @@ impl Handler<GameContext> for WindowHandler {
                 } else {
                     game.length = ((game.length as f32 + y) as u8).clamp(1, 4)
                 }
+                game.play_sound(&SELECT);
             }
             _ => {}
         }

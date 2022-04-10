@@ -30,7 +30,6 @@ impl SoundSystem {
     fn cleanup(&mut self) {
         self.streaming_sources.retain(|s, e| {
             if e.state() == SourceState::Stopped {
-                println!("Sound {} done playing!", s);
                 false
             } else {
                 true
