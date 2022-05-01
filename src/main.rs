@@ -145,7 +145,7 @@ impl Field {
             let y = y as isize + dy * i as isize;
             if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
                 let cell = &self.cells[x as usize][y as usize];
-                if !check(cell) {
+                if !check(cell) && *cell != Cell::Water {
                     success = false;
                     break;
                 }
@@ -239,7 +239,7 @@ impl Field {
                 match cell {
                     Cell::Water => {},
                     Cell::Miss => {
-                        canvas.text("O", x + s / 2.0, y + s / 4.0, &font);
+                        canvas.text("O", x + s / 2.0, y + s / 3.0 - 5.0, &font);
                     },
                     Cell::Ship { dir, length, fire, destroyed } => {
                         if *fire {
@@ -250,12 +250,18 @@ impl Field {
                             }
                         } else if !hidden {
                             canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
-                            /*canvas.text(&format!("{length}"), x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
-                                size: 52,
-                                color: [0.0, 0.0, 0.0, 1.0],
-                                .. Default::default()
-                            });*/
                         }
+                        let arrow = match dir {
+                            Dir::Up => "↑",
+                            Dir::Down => "↓",
+                            Dir::Left => "←",
+                            Dir::Right => "→",
+                        };
+                        canvas.text(arrow, x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
+                            size: 52,
+                            color: [0.0, 0.0, 0.0, 1.0],
+                            .. Default::default()
+                        });
                     }
                 }
             }
