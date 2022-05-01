@@ -438,6 +438,34 @@ impl GameContext {
             self.shoot(x, y, Move::Computer);
         }
     }
+
+    fn place_ships(&mut self, player: Move, mut inventory: [u8; 4]) {
+        let field = match player {
+            Move::Player => &mut self.player_field,
+            Move::Computer => &mut self.computer_field,
+        };
+
+        for length in 1..=4 {
+            while inventory[length as usize - 1] > 0 {
+                let x = random::<usize>() % GRID;
+                let y = random::<usize>() % GRID;
+                let dir = match random::<u8>() % 4 {
+                    0 => Dir::Up,
+                    1 => Dir::Right,
+                    2 => Dir::Down,
+                    3 => Dir::Left,
+                    other => unreachable!("Unknown random direction {}", other)
+                };
+
+                if !field.has_collision(x, y, length, dir) {
+                    field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
+                        *cell = Cell::Ship { dir, length: i as u8, fire: false, destroyed: false };
+                    });
+                    inventory[length as usize - 1] -= 1;
+                }
+            }
+        }
+    }
 }
 
 
@@ -586,29 +614,7 @@ impl Handler<GameContext> for WindowHandler {
                         && game.inventory[3] == 0 {
 
                         game.start = Some(Instant::now());
-
-                        let mut inventory = [4, 3, 2, 1];
-
-                        for length in 1..=4 {
-                            while inventory[length as usize - 1] > 0 {
-                                let x = random::<usize>() % GRID;
-                                let y = random::<usize>() % GRID;
-                                let dir = match random::<u8>() % 4 {
-                                    0 => Dir::Up,
-                                    1 => Dir::Right,
-                                    2 => Dir::Down,
-                                    3 => Dir::Left,
-                                    other => unreachable!("Unknown random direction {other}")
-                                };
-
-                                if !game.computer_field.has_collision(x, y, length, dir) {
-                                    game.computer_field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
-                                        *cell = Cell::Ship { dir, length: i as u8, fire: false, destroyed: false };
-                                    });
-                                    inventory[length as usize - 1] -= 1;
-                                }
-                            }
-                        }
+                        game.place_ships(Move::Computer, [4, 3, 2, 1]);
                     }
                 }
             }
@@ -657,6 +663,12 @@ impl Handler<GameContext> for WindowHandler {
             if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
                 game.dir = Dir::Right;
                 click = true;
+            }
+            if key == VirtualKeyCode::R && input.state == ElementState::Pressed && game.start.is_none() {
+                game.place_ships(Move::Player, game.inventory);
+                game.place_ships(Move::Computer, [4, 3, 2, 1]);
+                game.start = Some(Instant::now());
+                game.play_sound(&CLICK);
             }
             if click {
                 game.play_sound(&SELECT);
