@@ -37,6 +37,7 @@ const MISS: &[u8] = include_bytes!("../resources/sounds/miss.ogg");
 const HIT: &[u8] = include_bytes!("../resources/sounds/hit.ogg");
 const CLICK: &[u8] = include_bytes!("../resources/sounds/click.ogg");
 const SELECT: &[u8] = include_bytes!("../resources/sounds/select.ogg");
+const MOVE_DELAY: f32 = 1.0;
 
 struct GameContext {
     start: Option<Instant>,
@@ -44,14 +45,41 @@ struct GameContext {
     width: f32,
     height: f32,
     mouse: [f32; 2],
-    our_field: Field,
-    enemy_field: Field,
+    current_move: Move,
+    player_field: Field,
+    computer_field: Field,
     inventory: [u8; 4],
     game_over: bool,
     sound_system: SoundSystem,
     length: u8,
     dir: Dir,
-    timer: f32
+    timer: f32,
+    enemy_ai: EnemyAI
+}
+
+#[derive(PartialEq)]
+enum Move {
+    Player,
+    Computer
+}
+
+struct EnemyAI {
+    tactics: Tactics,
+    delay: f32
+}
+
+enum Tactics {
+    Random,
+    Scan {
+        pos: [u8; 2],
+        dir: Dir
+    },
+    Line {
+        start_pos: [u8; 2],
+        current_pos: [u8; 2],
+        dir: Dir
+    }
+
 }
 
 struct Field {
@@ -211,7 +239,7 @@ impl Field {
                 match cell {
                     Cell::Water => {},
                     Cell::Miss => {
-                        canvas.text("O", x + s / 2.0, y + s / 3.0, &font);
+                        canvas.text("O", x + s / 2.0, y + s / 4.0, &font);
                     },
                     Cell::Ship { dir, length, fire, destroyed } => {
                         if *fire {
@@ -282,8 +310,8 @@ impl Context for GameContext {
 
         let sound_system = audio::SoundSystem::new().expect("Could not initialize audio device");
 
-        let mut our_field = Field::new();
-        let mut enemy_field = Field::new();
+        let mut player_field = Field::new();
+        let mut computer_field = Field::new();
 
         Self {
             start: None,
@@ -292,13 +320,18 @@ impl Context for GameContext {
             width: size.width,
             height: size.height,
             mouse: [0.0, 0.0],
-            our_field,
-            enemy_field,
+            current_move: Move::Player,
+            player_field,
+            computer_field,
             sound_system,
             inventory: [4, 3, 2, 1],
             length: 4,
             dir: Dir::Down,
-            timer: 0.0
+            timer: 0.0,
+            enemy_ai: EnemyAI {
+                tactics: Tactics::Random,
+                delay: MOVE_DELAY
+            }
         }
     }
 }
@@ -323,6 +356,80 @@ impl GameContext {
             ])
         } else {
             None
+        }
+    }
+
+    fn shoot(&mut self, x: usize, y: usize, shooter: Move) {
+        let enemy_field = match shooter {
+            Move::Player => &mut self.computer_field,
+            Move::Computer => &mut self.player_field
+        };
+        let cell = enemy_field.get_mut(x, y);
+
+        match cell {
+            Cell::Water => {
+                *cell = Cell::Miss;
+                self.play_sound(&MISS);
+                self.current_move = match shooter {
+                    Move::Player => Move::Computer,
+                    Move::Computer => Move::Player
+                };
+            },
+            Cell::Ship { fire, dir, length, destroyed } if !*fire => {
+                *fire = true;
+
+                fn is_ship_burning(cell: &Cell) -> bool {
+                    if let Cell::Ship { fire, .. } = cell {
+                        *fire
+                    } else {
+                        false
+                    }
+                }
+
+                fn destroy_ship(cell: &mut Cell, i: i8) {
+                    if let Cell::Ship { destroyed, .. } = cell {
+                        *destroyed = true;
+                    }
+                }
+
+                let dir = *dir;
+                let length = *length as i8;
+                enemy_field.check_and_modify_all(x, y, -length, 4 - length, dir, is_ship_burning, destroy_ship);
+
+                self.play_sound(&HIT);
+            },
+            _ => {}
+        }
+    }
+
+    fn update_ai(&mut self, time_elapsed: f32) {
+        self.timer += time_elapsed;
+
+        if self.current_move != Move::Computer {
+            return;
+        }
+
+        self.enemy_ai.delay -= time_elapsed;
+
+        if self.enemy_ai.delay <= 0.0 {
+            self.enemy_ai.delay = MOVE_DELAY;
+            // придерживаемся тактики
+
+            let (x, y) = match self.enemy_ai.tactics {
+                Tactics::Random => {
+                    let x = random::<usize>() % GRID;
+                    let y = random::<usize>() % GRID;
+                    (x, y)
+                }
+                Tactics::Scan { .. } => {
+                    unimplemented!()
+                }
+                Tactics::Line { .. } => {
+                    unimplemented!()
+                }
+            };
+
+            self.shoot(x, y, Move::Computer);
         }
     }
 }
@@ -398,7 +505,7 @@ impl Handler<GameContext> for WindowHandler {
     fn draw_frame(&mut self, game: &mut GameContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        game.timer += time_elapsed;
+        game.update_ai(time_elapsed);
 
         let s = S as f32;
 
@@ -413,7 +520,7 @@ impl Handler<GameContext> for WindowHandler {
         let game_started = game.start.is_some();
         let has_ship = game.has_selected_ship_model();
 
-        game.our_field.draw(s, s, canvas, game.timer, game.mouse, if !game_started {
+        let our_selection = if !game_started {
             GridSelection::Placement {
                 dir: game.dir,
                 length: game.length,
@@ -421,13 +528,29 @@ impl Handler<GameContext> for WindowHandler {
             }
         } else {
             GridSelection::None
-        }, false);
+        };
 
-        game.enemy_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, if game_started {
+        game.player_field.draw(s, s, canvas, game.timer, game.mouse, our_selection, false);
+
+        let enemy_selection = if game_started && game.current_move == Move::Player {
             GridSelection::Shoot
         } else {
             GridSelection::None
-        }, true);
+        };
+
+        game.computer_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, enemy_selection, true);
+
+        let caption = match game.current_move {
+            Move::Player => "Ход игрока",
+            Move::Computer => "Ход компьютера"
+        };
+
+        canvas.text(caption, game.width / 2.0, 5.0, &FontParameters {
+            size: 52,
+            color: [1.0, 1.0, 1.0, 1.0],
+            align_horizontal: TextAlignHorizontal::Center,
+            .. FontParameters::default()
+        });
     }
 
     fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
@@ -436,7 +559,7 @@ impl Handler<GameContext> for WindowHandler {
 
         if let Some([x, y]) = game.get_grid_coordinates(s, s, field_size, field_size) {
             if button == MouseButton::Left && state == ElementState::Pressed {
-                let mut error = !game.has_selected_ship_model() || game.our_field.has_collision(x, y, game.length, game.dir);
+                let mut error = !game.has_selected_ship_model() || game.player_field.has_collision(x, y, game.length, game.dir);
 
                 if !error {
                     for i in 0..game.length {
@@ -444,7 +567,7 @@ impl Handler<GameContext> for WindowHandler {
                         let x = x as isize + dx * i as isize;
                         let y = y as isize + dy * i as isize;
                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                            game.our_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false, destroyed: false });
+                            game.player_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false, destroyed: false });
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
@@ -472,8 +595,8 @@ impl Handler<GameContext> for WindowHandler {
                                     other => unreachable!("Unknown random direction {other}")
                                 };
 
-                                if !game.enemy_field.has_collision(x, y, length, dir) {
-                                    game.enemy_field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
+                                if !game.computer_field.has_collision(x, y, length, dir) {
+                                    game.computer_field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
                                         *cell = Cell::Ship { dir, length: i as u8, fire: false, destroyed: false };
                                     });
                                     inventory[length as usize - 1] -= 1;
@@ -484,42 +607,8 @@ impl Handler<GameContext> for WindowHandler {
                 }
             }
         } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0 + s, s, field_size, field_size) {
-            if game.start.is_some() {
-                let cell = game.enemy_field.get_mut(x, y);
-
-                match cell {
-                    Cell::Water => {
-                        println!("Missed!");
-                        game.play_sound(&MISS);
-                        game.enemy_field.set(x, y, Cell::Miss)
-                    },
-                    Cell::Ship { fire, dir, length, destroyed } if !*fire => {
-                        println!("Direct hit!");
-
-                        *fire = true;
-
-                        fn is_ship_burning(cell: &Cell) -> bool {
-                            if let Cell::Ship { fire, .. } = cell {
-                                *fire
-                            } else {
-                                false
-                            }
-                        }
-
-                        fn destroy_ship(cell: &mut Cell, i: i8) {
-                            if let Cell::Ship { destroyed, .. } = cell {
-                                *destroyed = true;
-                            }
-                        }
-
-                        let dir = *dir;
-                        let length = *length as i8;
-                        game.enemy_field.check_and_modify_all(x, y, -length, 4 - length, dir, is_ship_burning, destroy_ship);
-
-                        game.play_sound(&HIT);
-                    },
-                    _ => {}
-                }
+            if game.start.is_some() && game.current_move == Move::Player {
+                game.shoot(x, y, Move::Player);
             }
         }
     }
@@ -570,6 +659,9 @@ impl Handler<GameContext> for WindowHandler {
     }
 
     fn on_mouse_scroll(&mut self, game: &mut GameContext, delta: MouseScrollDelta, modifiers: ModifiersState) {
+        if game.start.is_some() {
+            return;
+        }
         match delta {
             MouseScrollDelta::LineDelta(_, y) => {
                 if modifiers.shift() {
