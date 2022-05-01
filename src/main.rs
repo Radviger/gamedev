@@ -145,7 +145,9 @@ impl Field {
             let y = y as isize + dy * i as isize;
             if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
                 let cell = &self.cells[x as usize][y as usize];
-                if !check(cell) && *cell != Cell::Water {
+                if *cell == Cell::Water {
+                    break;
+                } else if !check(cell) {
                     success = false;
                     break;
                 }
@@ -160,7 +162,9 @@ impl Field {
                 let y = y as isize + dy * i as isize;
                 if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
                     let cell = &mut self.cells[x as usize][y as usize];
-                    if check(cell) {
+                    if *cell == Cell::Water {
+                        break;
+                    } else if check(cell) {
                         modifier(cell, i);
                     } else {
                         break;
