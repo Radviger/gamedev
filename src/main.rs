@@ -208,8 +208,7 @@ impl Handler<WindowContext> for WindowHandler {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
         let tiles = canvas.textures().try_borrow_mut().unwrap()
-            .get_or_load(String::from("tiles"), "resources/textures/tiles.png")
-            .unwrap();
+            .get("textures/tiles");
 
         if !context.game_over {
             let last_second = context.timer as u32;
