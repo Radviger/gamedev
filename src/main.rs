@@ -54,36 +54,35 @@ struct GameContext {
     length: u8,
     dir: Dir,
     timer: f32,
-    enemy_ai: EnemyAI
+    enemy_ai: EnemyAI,
 }
 
 #[derive(PartialEq)]
 enum Move {
     Player,
-    Computer
+    Computer,
 }
 
 struct EnemyAI {
     tactics: Tactics,
-    delay: f32
+    delay: f32,
 }
 
 enum Tactics {
     Random,
     Scan {
         pos: [u8; 2],
-        dir: Dir
+        dir: Dir,
     },
     Line {
         start_pos: [u8; 2],
         current_pos: [u8; 2],
-        dir: Dir
-    }
-
+        dir: Dir,
+    },
 }
 
 struct Field {
-    cells: [[Cell; GRID]; GRID]
+    cells: [[Cell; GRID]; GRID],
 }
 
 
@@ -91,10 +90,10 @@ enum GridSelection {
     Placement {
         dir: Dir,
         length: u8,
-        has_ship: bool
+        has_ship: bool,
     },
     Shoot,
-    None
+    None,
 }
 
 impl Field {
@@ -136,7 +135,6 @@ impl Field {
             C: Fn(&Cell) -> bool,
             M: Fn(&mut Cell, i8)
     {
-
         let mut success = true;
         let (dx, dy) = dir.to_vec();
 
@@ -174,7 +172,6 @@ impl Field {
                 }
             }
         }
-
     }
 
     fn set(&mut self, x: usize, y: usize, cell: Cell) {
@@ -219,8 +216,8 @@ impl Field {
 
         let font = FontParameters {
             size: 52,
-            color: [1.0;4],
-            .. Default::default()
+            color: [1.0; 4],
+            ..Default::default()
         };
 
         for i in 0..10 {
@@ -241,11 +238,11 @@ impl Field {
                 let y = y + grid_y as f32 * s;
 
                 match cell {
-                    Cell::Water => {},
+                    Cell::Water => {}
                     Cell::Miss => {
                         canvas.text("O", x + s / 2.0, y + s / 3.0 - 5.0, &font);
-                    },
-                    Cell::Ship { dir, length, fire, destroyed } => {
+                    }
+                    Cell::Ship { dir, fire, destroyed, .. } => {
                         if *fire {
                             if *destroyed {
                                 canvas.rect([x, y, s, s], [1.0, 0.0, 0.0, 1.0], &*shader, &uniforms, &params);
@@ -264,7 +261,7 @@ impl Field {
                         canvas.text(arrow, x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
                             size: 52,
                             color: [0.0, 0.0, 0.0, 1.0],
-                            .. Default::default()
+                            ..Default::default()
                         });
                     }
                 }
@@ -299,7 +296,6 @@ impl Field {
                 }
                 GridSelection::None => {}
             }
-
         }
 
         for grid_x in 0..=GRID {
@@ -340,16 +336,14 @@ impl Context for GameContext {
             timer: 0.0,
             enemy_ai: EnemyAI {
                 tactics: Tactics::Random,
-                delay: MOVE_DELAY
-            }
+                delay: MOVE_DELAY,
+            },
         }
     }
 }
 
 impl GameContext {
-    fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {
-
-    }
+    fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {}
 
     fn play_sound(&mut self, sound: &[u8]) {
         if let Err(e) = self.sound_system.play_streaming_bytes(sound) {
@@ -384,30 +378,48 @@ impl GameContext {
                     Move::Player => Move::Computer,
                     Move::Computer => Move::Player
                 };
-            },
-            Cell::Ship { fire, dir, length, destroyed } if !*fire => {
+            }
+            Cell::Ship { fire, dir, front, back, destroyed } if !*fire => {
                 *fire = true;
-
-                fn is_ship_burning(cell: &Cell) -> bool {
-                    if let Cell::Ship { fire, .. } = cell {
-                        *fire
-                    } else {
-                        false
+                println!("{},{}", front,back);
+                let (dx, dy) = dir.to_vec();
+                let start = -(*back as isize);
+                let end = *front as isize;
+                let mut destroy = true;
+                for i in start..=end {
+                    let x = x as isize + dx * i;
+                    let y = y as isize + dy * i;
+                    println!("Checking: {}, {}", x, y);
+                    if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                        let c = enemy_field.get(x as usize, y as usize);
+                        match c {
+                            Cell::Ship { fire, .. } => {
+                                if !*fire {
+                                    destroy = false;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
-
-                fn destroy_ship(cell: &mut Cell, i: i8) {
-                    if let Cell::Ship { destroyed, .. } = cell {
-                        *destroyed = true;
+                if destroy {
+                    for i in start..=end {
+                        let x = x as isize + dx * i;
+                        let y = y as isize + dy * i;
+                        if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
+                            let c = enemy_field.get_mut(x as usize, y as usize);
+                            match c {
+                                Cell::Ship { destroyed, .. } => {
+                                    *destroyed = true;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
-
-                let dir = *dir;
-                let length = *length as i8;
-                enemy_field.check_and_modify_all(x, y, -length, 4 - length, dir, is_ship_burning, destroy_ship);
-
                 self.play_sound(&HIT);
-            },
+            }
             _ => {}
         }
     }
@@ -463,7 +475,7 @@ impl GameContext {
 
                 if !field.has_collision(x, y, length, dir) {
                     field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
-                        *cell = Cell::Ship { dir, length: i as u8, fire: false, destroyed: false };
+                        *cell = Cell::Ship { dir, back: i as u8, front: length - i as u8 - 1, fire: false, destroyed: false };
                     });
                     inventory[length as usize - 1] -= 1;
                 }
@@ -479,10 +491,11 @@ enum Cell {
     Miss,
     Ship {
         dir: Dir,
-        length: u8,
+        front: u8,
+        back: u8,
         fire: bool,
-        destroyed: bool
-    }
+        destroyed: bool,
+    },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -562,7 +575,7 @@ impl Handler<GameContext> for WindowHandler {
             GridSelection::Placement {
                 dir: game.dir,
                 length: game.length,
-                has_ship
+                has_ship,
             }
         } else {
             GridSelection::None
@@ -587,7 +600,7 @@ impl Handler<GameContext> for WindowHandler {
             size: 52,
             color: [1.0, 1.0, 1.0, 1.0],
             align_horizontal: TextAlignHorizontal::Center,
-            .. FontParameters::default()
+            ..FontParameters::default()
         });
     }
 
@@ -605,7 +618,7 @@ impl Handler<GameContext> for WindowHandler {
                         let x = x as isize + dx * i as isize;
                         let y = y as isize + dy * i as isize;
                         if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                            game.player_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, length: i, fire: false, destroyed: false });
+                            game.player_field.set(x as usize, y as usize, Cell::Ship { dir: game.dir, back: i, front: game.length - i - 1, fire: false, destroyed: false });
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
@@ -616,7 +629,6 @@ impl Handler<GameContext> for WindowHandler {
                         && game.inventory[1] == 0
                         && game.inventory[2] == 0
                         && game.inventory[3] == 0 {
-
                         game.start = Some(Instant::now());
                         game.place_ships(Move::Computer, [4, 3, 2, 1]);
                     }
