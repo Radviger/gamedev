@@ -436,12 +436,27 @@ impl GameContext {
         if self.enemy_ai.delay <= 0.0 {
             self.enemy_ai.delay = MOVE_DELAY;
             // придерживаемся тактики
-
+            let mut points = Vec::new();
+            for x in 0..GRID {
+                for y in 0..GRID {
+                    match self.player_field.get(x,y) {
+                        Cell::Water => {
+                            points.push((x,y))
+                        },
+                        Cell::Miss => {},
+                        Cell::Ship {fire,..} => {
+                            if !*fire {
+                                points.push((x,y));
+                            }
+                        }
+                    }
+                }
+            }
             let (x, y) = match self.enemy_ai.tactics {
                 Tactics::Random => {
-                    let x = random::<usize>() % GRID;
-                    let y = random::<usize>() % GRID;
-                    (x, y)
+                    let index = random::<usize>() % points.len();
+                    points.get(index).unwrap()
+
                 }
                 Tactics::Scan { .. } => {
                     unimplemented!()
@@ -451,7 +466,7 @@ impl GameContext {
                 }
             };
 
-            self.shoot(x, y, Move::Computer);
+            self.shoot(*x, *y, Move::Computer);
         }
     }
 
