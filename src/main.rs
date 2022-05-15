@@ -55,6 +55,16 @@ struct GameContext {
     dir: Dir,
     timer: f32,
     enemy_ai: EnemyAI,
+    player_score: u8,
+    computer_score: u8,
+    winner: Winner
+}
+
+#[derive(PartialEq)]
+enum Winner {
+    None,
+    Player,
+    Computer
 }
 
 #[derive(PartialEq)]
@@ -66,6 +76,12 @@ enum Move {
 struct EnemyAI {
     tactics: Tactics,
     delay: f32,
+}
+
+enum ShootResult {
+    Miss,
+    Hit,
+    Destroy,
 }
 
 enum Tactics {
@@ -126,50 +142,6 @@ impl Field {
             let y = y as isize + dy * i as isize;
             if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
                 modifier(&mut self.cells[x as usize][y as usize], i);
-            }
-        }
-    }
-
-    fn check_and_modify_all<C, M>(&mut self, x: usize, y: usize, start_len: i8, end_len: i8, dir: Dir, check: C, modifier: M)
-        where
-            C: Fn(&Cell) -> bool,
-            M: Fn(&mut Cell, i8)
-    {
-        let mut success = true;
-        let (dx, dy) = dir.to_vec();
-
-        for i in start_len..end_len {
-            let x = x as isize + dx * i as isize;
-            let y = y as isize + dy * i as isize;
-            if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                let cell = &self.cells[x as usize][y as usize];
-                if *cell == Cell::Water {
-                    break;
-                } else if !check(cell) {
-                    success = false;
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        if success {
-            for i in start_len..end_len {
-                let x = x as isize + dx * i as isize;
-                let y = y as isize + dy * i as isize;
-                if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
-                    let cell = &mut self.cells[x as usize][y as usize];
-                    if *cell == Cell::Water {
-                        break;
-                    } else if check(cell) {
-                        modifier(cell, i);
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
             }
         }
     }
@@ -252,17 +224,6 @@ impl Field {
                         } else if !hidden {
                             canvas.rect([x, y, s, s], [1.0, 1.0, 1.0, 1.0], &*shader, &uniforms, &params);
                         }
-                        let arrow = match dir {
-                            Dir::Up => "↑",
-                            Dir::Down => "↓",
-                            Dir::Left => "←",
-                            Dir::Right => "→",
-                        };
-                        canvas.text(arrow, x + s / 2.0 - 3.0, y + s / 3.0 - 5.0, &FontParameters {
-                            size: 52,
-                            color: [0.0, 0.0, 0.0, 1.0],
-                            ..Default::default()
-                        });
                     }
                 }
             }
@@ -338,6 +299,9 @@ impl Context for GameContext {
                 tactics: Tactics::Random,
                 delay: MOVE_DELAY,
             },
+            player_score: 0,
+            computer_score: 0,
+            winner: Winner::None
         }
     }
 }
@@ -363,7 +327,7 @@ impl GameContext {
         }
     }
 
-    fn shoot(&mut self, x: usize, y: usize, shooter: Move) {
+    fn shoot(&mut self, x: usize, y: usize, shooter: Move) -> ShootResult {
         let enemy_field = match shooter {
             Move::Player => &mut self.computer_field,
             Move::Computer => &mut self.player_field
@@ -378,10 +342,11 @@ impl GameContext {
                     Move::Player => Move::Computer,
                     Move::Computer => Move::Player
                 };
+                ShootResult::Miss
             }
             Cell::Ship { fire, dir, front, back, destroyed } if !*fire => {
                 *fire = true;
-                println!("{},{}", front,back);
+                println!("{},{}", front, back);
                 let (dx, dy) = dir.to_vec();
                 let start = -(*back as isize);
                 let end = *front as isize;
@@ -419,8 +384,13 @@ impl GameContext {
                     }
                 }
                 self.play_sound(&HIT);
+                if destroy {
+                    ShootResult::Destroy
+                } else {
+                    ShootResult::Hit
+                }
             }
-            _ => {}
+            _ => ShootResult::Miss
         }
     }
 
@@ -439,14 +409,14 @@ impl GameContext {
             let mut points = Vec::new();
             for x in 0..GRID {
                 for y in 0..GRID {
-                    match self.player_field.get(x,y) {
+                    match self.player_field.get(x, y) {
                         Cell::Water => {
-                            points.push((x,y))
-                        },
-                        Cell::Miss => {},
-                        Cell::Ship {fire,..} => {
+                            points.push((x, y))
+                        }
+                        Cell::Miss => {}
+                        Cell::Ship { fire, .. } => {
                             if !*fire {
-                                points.push((x,y));
+                                points.push((x, y));
                             }
                         }
                     }
@@ -456,7 +426,6 @@ impl GameContext {
                 Tactics::Random => {
                     let index = random::<usize>() % points.len();
                     points.get(index).unwrap()
-
                 }
                 Tactics::Scan { .. } => {
                     unimplemented!()
@@ -466,7 +435,27 @@ impl GameContext {
                 }
             };
 
-            self.shoot(*x, *y, Move::Computer);
+            match self.shoot(*x, *y, Move::Computer) {
+                ShootResult::Miss => {}
+                ShootResult::Hit => {}
+                ShootResult::Destroy => {
+                    self.computer_score += 1;
+                }
+            }
+
+            if self.computer_score == 10 {
+                self.winner = Winner::Computer;
+            }
+
+            // match self.shoot(*x, *y, Move::Computer) {
+            //     ShootResult::Miss => {
+            //         if self.enemy_ai.tactics == Tactics::Scan {} {
+            //
+            //         }
+            //     }
+            //     ShootResult::Hit => {}
+            //     ShootResult::Destroy => {}
+            // }
         }
     }
 
@@ -571,7 +560,9 @@ impl Handler<GameContext> for WindowHandler {
     fn draw_frame(&mut self, game: &mut GameContext, canvas: &mut Canvas<Frame>, time_elapsed: f32) {
         canvas.clear((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        game.update_ai(time_elapsed);
+        if game.winner == Winner::None {
+            game.update_ai(time_elapsed);
+        }
 
         let s = S as f32;
 
@@ -579,9 +570,14 @@ impl Handler<GameContext> for WindowHandler {
             mat: Into::<[[f32; 4]; 4]>::into(canvas.viewport()),
             time: game.timer
         };
-        let params = DrawParameters::default();
+        let params = DrawParameters {
+            blend: Blend::alpha_blending(),
+            .. Default::default()
+        };
         let shader = canvas.shaders().borrow().water();
         canvas.textured_rect([0.0, 0.0, game.width, game.height], [1.0; 4], &shader, &uniforms, &params);
+        let shader = canvas.shaders().borrow().default();
+
 
         let game_started = game.start.is_some();
         let has_ship = game.has_selected_ship_model();
@@ -606,20 +602,46 @@ impl Handler<GameContext> for WindowHandler {
 
         game.computer_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, enemy_selection, true);
 
-        let caption = match game.current_move {
-            Move::Player => "Ход игрока",
-            Move::Computer => "Ход компьютера"
-        };
+        match game.winner {
+            Winner::None => {
+                let caption = match game.current_move {
+                    Move::Player => "Ход игрока",
+                    Move::Computer => "Ход компьютера"
+                };
 
-        canvas.text(caption, game.width / 2.0, 5.0, &FontParameters {
-            size: 52,
-            color: [1.0, 1.0, 1.0, 1.0],
-            align_horizontal: TextAlignHorizontal::Center,
-            ..FontParameters::default()
-        });
+                canvas.text(caption, game.width / 2.0, 5.0, &FontParameters {
+                    size: 52,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    align_horizontal: TextAlignHorizontal::Center,
+                    ..FontParameters::default()
+                });
+            }
+            Winner::Player => {
+                canvas.rect([0.0, 0.0, game.width, game.height], [0.0,0.0,0.0,0.7], &shader, &uniforms, &params);
+                canvas.text("Выиграл игрок!", game.width / 2.0, game.height / 2.0 - 20.0, &FontParameters {
+                    size: 2 * 52,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    align_horizontal: TextAlignHorizontal::Center,
+                    ..FontParameters::default()
+                });
+            }
+            Winner::Computer => {
+                canvas.rect([0.0, 0.0, game.width, game.height], [0.0,0.0,0.0,0.7], &shader, &uniforms, &params);
+                canvas.text("Выиграл компьютер!", game.width / 2.0, game.height / 2.0 -20.0, &FontParameters {
+                    size: 2 * 52,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    align_horizontal: TextAlignHorizontal::Center,
+                    ..FontParameters::default()
+                });
+            }
+        }
     }
 
     fn on_mouse_button(&mut self, game: &mut GameContext, state: ElementState, button: MouseButton, modifiers: ModifiersState) {
+        if game.winner != Winner::None {
+            return;
+        }
+
         let s = S as f32;
         let field_size = GRID as f32 * s;
 
@@ -651,7 +673,16 @@ impl Handler<GameContext> for WindowHandler {
             }
         } else if let Some([x, y]) = game.get_grid_coordinates(game.width / 2.0 + s, s, field_size, field_size) {
             if game.start.is_some() && game.current_move == Move::Player {
-                game.shoot(x, y, Move::Player);
+                match game.shoot(x, y, Move::Player) {
+                    ShootResult::Miss => {}
+                    ShootResult::Hit => {}
+                    ShootResult::Destroy => {
+                        game.player_score += 1;
+                    }
+                }
+                if game.player_score == 10 {
+                    game.winner = Winner::Player;
+                }
             }
         }
     }
