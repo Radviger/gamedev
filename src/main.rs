@@ -150,7 +150,7 @@ impl Field {
         self.cells[x][y] = cell;
     }
 
-    fn has_collision(&self, x: usize, y: usize, length: u8, dir: Dir) -> bool {
+    fn has_collision(&self, x: usize, y: usize, length: u8, dir: Dir, destroyed_only: bool) -> bool {
         for i in 0..length {
             let (dx, dy) = dir.to_vec();
             let x = x as isize + dx * i as isize;
@@ -162,7 +162,10 @@ impl Field {
                         let y = y as i32 + ddy;
                         if x >= 0 && y >= 0 && x < GRID as i32 && y < GRID as i32 {
                             let cell = &self.cells[x as usize][y as usize];
-                            if let Cell::Ship { .. } = cell {
+                            if let Cell::Ship { destroyed, .. } = cell {
+                                if destroyed_only && !destroyed {
+                                    continue;
+                                }
                                 return true;
                             }
                         }
@@ -236,7 +239,7 @@ impl Field {
 
             match selection {
                 GridSelection::Placement { dir, length, has_ship } => {
-                    let error = !has_ship || self.has_collision(grid_x, grid_y, length, dir);
+                    let error = !has_ship || self.has_collision(grid_x, grid_y, length, dir, false);
                     let color = if !error {
                         [0.0, 1.0, 1.0, 1.0]
                     } else {
@@ -346,7 +349,6 @@ impl GameContext {
             }
             Cell::Ship { fire, dir, front, back, destroyed } if !*fire => {
                 *fire = true;
-                println!("{},{}", front, back);
                 let (dx, dy) = dir.to_vec();
                 let start = -(*back as isize);
                 let end = *front as isize;
@@ -354,7 +356,6 @@ impl GameContext {
                 for i in start..=end {
                     let x = x as isize + dx * i;
                     let y = y as isize + dy * i;
-                    println!("Checking: {}, {}", x, y);
                     if x >= 0 && y >= 0 && x < GRID as isize && y < GRID as isize {
                         let c = enemy_field.get(x as usize, y as usize);
                         match c {
@@ -409,14 +410,16 @@ impl GameContext {
             let mut points = Vec::new();
             for x in 0..GRID {
                 for y in 0..GRID {
-                    match self.player_field.get(x, y) {
-                        Cell::Water => {
-                            points.push((x, y))
-                        }
-                        Cell::Miss => {}
-                        Cell::Ship { fire, .. } => {
-                            if !*fire {
-                                points.push((x, y));
+                    if !self.player_field.has_collision(x, y, 1, Dir::Down, true) { //При длине 1 направление не играет роли
+                        match self.player_field.get(x, y) {
+                            Cell::Water => {
+                                points.push((x, y))
+                            }
+                            Cell::Miss => {}
+                            Cell::Ship { fire, .. } => {
+                                if !*fire {
+                                    points.push((x, y));
+                                }
                             }
                         }
                     }
@@ -433,10 +436,9 @@ impl GameContext {
                         let (dx, dy) = dir.to_vec();
                         let tx = x as isize + dx;
                         let ty = y as isize + dy;
-                        if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize {
+                        if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize && points.contains(&(tx as usize, ty as usize)) {
                             break (tx as usize, ty as usize);
                         } else {
-                            println!("Looping: {} {}", tx, ty);
                             *dir = dir.clockwise();
                         }
                     }
@@ -454,9 +456,6 @@ impl GameContext {
                     match &mut self.enemy_ai.tactics {
                         Tactics::Scan { pos, dir } => {
                             *dir = dir.clockwise();
-                            if *dir == Dir::Up {
-                                unreachable!()
-                            }
                         }
                         Tactics::Line { start_pos, current_pos, dir } => {
                             *dir = dir.opposite();
@@ -464,16 +463,7 @@ impl GameContext {
                             let (dx, dy) = dir.to_vec();
                             let tx = x as isize + dx;
                             let ty = y as isize + dy;
-                            if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize {
-                                *current_pos = [tx as u8, ty as u8];
-                            } else {
-                                *dir = dir.clockwise();
-                                let [x, y] = *start_pos;
-                                let (dx, dy) = dir.to_vec();
-                                let tx = x as isize + dx;
-                                let ty = y as isize + dy;
-                                *current_pos = [tx as u8, ty as u8];
-                            }
+                            *current_pos = [tx as u8, ty as u8];
                         }
                         Tactics::Random => {}
                     }
@@ -494,27 +484,44 @@ impl GameContext {
                             };
                         }
                         Tactics::Scan { pos, dir } => {
-                            let (dx, dy) = dir.to_vec();
-                            let tx = x as isize + dx;
-                            let ty = y as isize + dy;
-                            self.enemy_ai.tactics = Tactics::Line {
-                                start_pos: pos.clone(),
-                                current_pos: [tx as u8, ty as u8],
-                                dir: *dir
-                            };
+                            loop {
+                                let (dx, dy) = dir.to_vec();
+                                let tx = x as isize + dx;
+                                let ty = y as isize + dy;
+                                if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize && points.contains(&(tx as usize, ty as usize)) {
+                                    self.enemy_ai.tactics = Tactics::Line {
+                                        start_pos: pos.clone(),
+                                        current_pos: [tx as u8, ty as u8],
+                                        dir: *dir
+                                    };
+                                    break;
+                                } else {
+                                    *dir = dir.clockwise();
+                                }
+                            }
                         }
                         Tactics::Line { start_pos, current_pos, dir } => {
                             let [x, y] = *current_pos;
                             let (dx, dy) = dir.to_vec();
                             let tx = x as isize + dx;
                             let ty = y as isize + dy;
-                            *current_pos = [tx as u8, ty as u8];
+                            if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize && points.contains(&(tx as usize, ty as usize)) {
+                                *current_pos = [tx as u8, ty as u8];
+                            } else {
+                                *dir = dir.opposite();
+                                let [x, y] = *start_pos;
+                                let (dx, dy) = dir.to_vec();
+                                let tx = x as isize + dx;
+                                let ty = y as isize + dy;
+                                *current_pos = [tx as u8, ty as u8];
+                            }
                         }
                     }
                 }
                 ShootResult::Destroy => {
                     self.enemy_ai.tactics = Tactics::Random;
                     if let Some(ships) = self.player_ships.checked_sub(1) {
+                        self.player_ships -= 1;
                         if ships == 0 {
                             self.winner = Winner::Computer;
                         }
@@ -542,7 +549,7 @@ impl GameContext {
                     other => unreachable!("Unknown random direction {}", other)
                 };
 
-                if !field.has_collision(x, y, length, dir) {
+                if !field.has_collision(x, y, length, dir, false) {
                     field.modify_all(x, y, 0, length as i8, dir, |cell, i| {
                         *cell = Cell::Ship { dir, back: i as u8, front: length - i as u8 - 1, fire: false, destroyed: false };
                     });
@@ -720,7 +727,7 @@ impl Handler<GameContext> for WindowHandler {
 
         if let Some([x, y]) = game.get_grid_coordinates(s, s, field_size, field_size) {
             if button == MouseButton::Left && state == ElementState::Pressed {
-                let mut error = !game.has_selected_ship_model() || game.player_field.has_collision(x, y, game.length, game.dir);
+                let mut error = !game.has_selected_ship_model() || game.player_field.has_collision(x, y, game.length, game.dir, false);
 
                 if !error {
                     for i in 0..game.length {
@@ -751,9 +758,10 @@ impl Handler<GameContext> for WindowHandler {
                     ShootResult::Miss => {}
                     ShootResult::Hit => {}
                     ShootResult::Destroy => {
-                        if let Some(ships) = self.computer_ships.checked_sub(1) {
+                        if let Some(ships) = game.computer_ships.checked_sub(1) {
+                            game.computer_ships -= 1;
                             if ships == 0 {
-                                self.winner = Winner::Player;
+                                game.winner = Winner::Player;
                             }
                         }
                     }
