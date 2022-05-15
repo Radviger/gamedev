@@ -86,6 +86,7 @@ impl SoundSystem {
             source.queue_buffer(buffer)?;
             len_play += samples.len() as f32 / sample_channels;
         }
+        source.set_gain(0.10);
         source.play();
         let id = Uuid::new_v4();
         self.streaming_sources.insert(id, source);
