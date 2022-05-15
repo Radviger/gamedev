@@ -481,9 +481,16 @@ impl GameContext {
                 ShootResult::Hit => {
                     match &mut self.enemy_ai.tactics {
                         Tactics::Random => {
+                            let dir = match random::<u8>() % 4 {
+                                0 => Dir::Up,
+                                1 => Dir::Right,
+                                2 => Dir::Down,
+                                3 => Dir::Left,
+                                other => unreachable!("Unknown random direction {}", other)
+                            };
                             self.enemy_ai.tactics = Tactics::Scan {
                                 pos: [x as u8, y as u8],
-                                dir: Dir::Up
+                                dir
                             };
                         }
                         Tactics::Scan { pos, dir } => {
