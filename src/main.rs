@@ -422,40 +422,98 @@ impl GameContext {
                     }
                 }
             }
-            let (x, y) = match self.enemy_ai.tactics {
-                Tactics::Random => {
-                    let index = random::<usize>() % points.len();
-                    points.get(index).unwrap()
-                }
-                Tactics::Scan { .. } => {
-                    unimplemented!()
-                }
-                Tactics::Line { .. } => {
-                    unimplemented!()
+            let (x, y) = loop {
+                match &mut self.enemy_ai.tactics {
+                    Tactics::Random => {
+                        let index = random::<usize>() % points.len();
+                        break points.get(index).cloned().unwrap()
+                    }
+                    Tactics::Scan { pos, dir } => {
+                        let [x, y] = *pos;
+                        let (dx, dy) = dir.to_vec();
+                        let tx = x as isize + dx;
+                        let ty = y as isize + dy;
+                        if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize {
+                            break (tx as usize, ty as usize);
+                        } else {
+                            println!("Looping: {} {}", tx, ty);
+                            *dir = dir.clockwise();
+                        }
+                    }
+                    Tactics::Line { start_pos, current_pos, dir } => {
+                        let [x, y] = *current_pos;
+                        break (x as usize, y as usize)
+                    }
                 }
             };
 
-            match self.shoot(*x, *y, Move::Computer) {
-                ShootResult::Miss => {}
-                ShootResult::Hit => {}
+            println!("Shooting at {} {}", x, y);
+
+            match self.shoot(x, y, Move::Computer) {
+                ShootResult::Miss => {
+                    match &mut self.enemy_ai.tactics {
+                        Tactics::Scan { pos, dir } => {
+                            *dir = dir.clockwise();
+                            if *dir == Dir::Up {
+                                unreachable!()
+                            }
+                        }
+                        Tactics::Line { start_pos, current_pos, dir } => {
+                            *dir = dir.opposite();
+                            let [x, y] = *start_pos;
+                            let (dx, dy) = dir.to_vec();
+                            let tx = x as isize + dx;
+                            let ty = y as isize + dy;
+                            if tx >= 0 && ty >= 0 && tx < GRID as isize && ty < GRID as isize {
+                                *current_pos = [tx as u8, ty as u8];
+                            } else {
+                                *dir = dir.clockwise();
+                                let [x, y] = *start_pos;
+                                let (dx, dy) = dir.to_vec();
+                                let tx = x as isize + dx;
+                                let ty = y as isize + dy;
+                                *current_pos = [tx as u8, ty as u8];
+                            }
+                        }
+                        Tactics::Random => {}
+                    }
+                }
+                ShootResult::Hit => {
+                    match &mut self.enemy_ai.tactics {
+                        Tactics::Random => {
+                            self.enemy_ai.tactics = Tactics::Scan {
+                                pos: [x as u8, y as u8],
+                                dir: Dir::Up
+                            };
+                        }
+                        Tactics::Scan { pos, dir } => {
+                            let (dx, dy) = dir.to_vec();
+                            let tx = x as isize + dx;
+                            let ty = y as isize + dy;
+                            self.enemy_ai.tactics = Tactics::Line {
+                                start_pos: pos.clone(),
+                                current_pos: [tx as u8, ty as u8],
+                                dir: *dir
+                            };
+                        }
+                        Tactics::Line { start_pos, current_pos, dir } => {
+                            let [x, y] = *current_pos;
+                            let (dx, dy) = dir.to_vec();
+                            let tx = x as isize + dx;
+                            let ty = y as isize + dy;
+                            *current_pos = [tx as u8, ty as u8];
+                        }
+                    }
+                }
                 ShootResult::Destroy => {
                     self.computer_score += 1;
+                    self.enemy_ai.tactics = Tactics::Random;
                 }
             }
 
             if self.computer_score == 10 {
                 self.winner = Winner::Computer;
             }
-
-            // match self.shoot(*x, *y, Move::Computer) {
-            //     ShootResult::Miss => {
-            //         if self.enemy_ai.tactics == Tactics::Scan {} {
-            //
-            //         }
-            //     }
-            //     ShootResult::Hit => {}
-            //     ShootResult::Destroy => {}
-            // }
         }
     }
 
