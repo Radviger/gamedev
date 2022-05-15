@@ -55,8 +55,8 @@ struct GameContext {
     dir: Dir,
     timer: f32,
     enemy_ai: EnemyAI,
-    player_score: u8,
-    computer_score: u8,
+    player_ships: u8,
+    computer_ships: u8,
     winner: Winner
 }
 
@@ -299,8 +299,8 @@ impl Context for GameContext {
                 tactics: Tactics::Random,
                 delay: MOVE_DELAY,
             },
-            player_score: 0,
-            computer_score: 0,
+            player_ships: 0,
+            computer_ships: 0,
             winner: Winner::None
         }
     }
@@ -506,13 +506,13 @@ impl GameContext {
                     }
                 }
                 ShootResult::Destroy => {
-                    self.computer_score += 1;
                     self.enemy_ai.tactics = Tactics::Random;
+                    if let Some(ships) = self.player_ships.checked_sub(1) {
+                        if ships == 0 {
+                            self.winner = Winner::Computer;
+                        }
+                    }
                 }
-            }
-
-            if self.computer_score == 10 {
-                self.winner = Winner::Computer;
             }
         }
     }
@@ -540,6 +540,14 @@ impl GameContext {
                         *cell = Cell::Ship { dir, back: i as u8, front: length - i as u8 - 1, fire: false, destroyed: false };
                     });
                     inventory[length as usize - 1] -= 1;
+                    match player {
+                        Move::Player => {
+                            self.player_ships += 1;
+                        }
+                        Move::Computer => {
+                            self.computer_ships += 1;
+                        }
+                    }
                 }
             }
         }
@@ -717,6 +725,7 @@ impl Handler<GameContext> for WindowHandler {
                         }
                     }
                     game.inventory[game.length as usize - 1] -= 1;
+                    game.player_ships += 1;
 
                     game.play_sound(&CLICK);
 
@@ -735,11 +744,12 @@ impl Handler<GameContext> for WindowHandler {
                     ShootResult::Miss => {}
                     ShootResult::Hit => {}
                     ShootResult::Destroy => {
-                        game.player_score += 1;
+                        if let Some(ships) = self.computer_ships.checked_sub(1) {
+                            if ships == 0 {
+                                self.winner = Winner::Player;
+                            }
+                        }
                     }
-                }
-                if game.player_score == 10 {
-                    game.winner = Winner::Player;
                 }
             }
         }
