@@ -776,47 +776,50 @@ impl Handler<GameContext> for WindowHandler {
 
     fn on_keyboard_input(&mut self, game: &mut GameContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
-            let mut click = false;
-            if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
-                game.length = 1;
-                click = true;
-            }
-            if key == VirtualKeyCode::Key2 && input.state == ElementState::Pressed {
-                game.length = 2;
-                click = true;
-            }
-            if key == VirtualKeyCode::Key3 && input.state == ElementState::Pressed {
-                game.length = 3;
-                click = true;
-            }
-            if key == VirtualKeyCode::Key4 && input.state == ElementState::Pressed {
-                game.length = 4;
-                click = true;
-            }
-            if key == VirtualKeyCode::W || key == VirtualKeyCode::Up && input.state == ElementState::Pressed {
-                game.dir = Dir::Up;
-                click = true;
-            }
-            if key == VirtualKeyCode::A || key == VirtualKeyCode::Left && input.state == ElementState::Pressed {
-                game.dir = Dir::Left;
-                click = true;
-            }
-            if key == VirtualKeyCode::S || key == VirtualKeyCode::Down && input.state == ElementState::Pressed {
-                game.dir = Dir::Down;
-                click = true;
-            }
-            if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
-                game.dir = Dir::Right;
-                click = true;
-            }
-            if key == VirtualKeyCode::R && input.state == ElementState::Pressed && game.start.is_none() {
-                game.place_ships(Move::Player, game.inventory);
-                game.place_ships(Move::Computer, [4, 3, 2, 1]);
-                game.start = Some(Instant::now());
-                game.play_sound(&CLICK);
-            }
-            if click {
-                game.play_sound(&SELECT);
+            if game.start.is_none() {
+
+                let mut click = false;
+                if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
+                    game.length = 1;
+                    click = true;
+                }
+                if key == VirtualKeyCode::Key2 && input.state == ElementState::Pressed {
+                    game.length = 2;
+                    click = true;
+                }
+                if key == VirtualKeyCode::Key3 && input.state == ElementState::Pressed {
+                    game.length = 3;
+                    click = true;
+                }
+                if key == VirtualKeyCode::Key4 && input.state == ElementState::Pressed {
+                    game.length = 4;
+                    click = true;
+                }
+                if key == VirtualKeyCode::W || key == VirtualKeyCode::Up && input.state == ElementState::Pressed {
+                    game.dir = Dir::Up;
+                    click = true;
+                }
+                if key == VirtualKeyCode::A || key == VirtualKeyCode::Left && input.state == ElementState::Pressed {
+                    game.dir = Dir::Left;
+                    click = true;
+                }
+                if key == VirtualKeyCode::S || key == VirtualKeyCode::Down && input.state == ElementState::Pressed {
+                    game.dir = Dir::Down;
+                    click = true;
+                }
+                if key == VirtualKeyCode::D || key == VirtualKeyCode::Right && input.state == ElementState::Pressed {
+                    game.dir = Dir::Right;
+                    click = true;
+                }
+                if key == VirtualKeyCode::R && input.state == ElementState::Pressed {
+                    game.place_ships(Move::Player, game.inventory);
+                    game.place_ships(Move::Computer, [4, 3, 2, 1]);
+                    game.start = Some(Instant::now());
+                    game.play_sound(&CLICK);
+                }
+                if click {
+                    game.play_sound(&SELECT);
+                }
             }
         }
     }
