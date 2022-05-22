@@ -1,3 +1,4 @@
+#![windows_subsystem="windows"]
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
 use std::io::Cursor;
