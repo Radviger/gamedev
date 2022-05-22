@@ -310,7 +310,22 @@ impl Context for GameContext {
 }
 
 impl GameContext {
-    fn reset(&mut self, click_x: usize, click_y: usize, keep_flags: bool) {}
+    fn reset(&mut self) {
+        self.start = None;
+        self.game_over = false;
+        self.current_move = Move::Player;
+        self.player_field = Field::new();
+        self.computer_field = Field::new();
+        self.inventory = [4, 3, 2, 1];
+        self.length = 4;
+        self.dir = Dir::Down;
+        self.timer = 0.0;
+        self.enemy_ai.tactics = Tactics::Random;
+        self.enemy_ai.delay = MOVE_DELAY;
+        self.player_ships = 0;
+        self.computer_ships = 0;
+        self.winner = Winner::None;
+    }
 
     fn play_sound(&mut self, sound: &[u8]) {
         if let Err(e) = self.sound_system.play_streaming_bytes(sound) {
@@ -704,11 +719,23 @@ impl Handler<GameContext> for WindowHandler {
                     align_horizontal: TextAlignHorizontal::Center,
                     ..FontParameters::default()
                 });
+                canvas.text("Для перезапуска нажмите любую клавишу", game.width / 2.0, game.height / 2.0 + 25.0, &FontParameters {
+                    size: 2 * 24,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    align_horizontal: TextAlignHorizontal::Center,
+                    ..FontParameters::default()
+                });
             }
             Winner::Computer => {
                 canvas.rect([0.0, 0.0, game.width, game.height], [0.0,0.0,0.0,0.7], &shader, &uniforms, &params);
                 canvas.text("Выиграл компьютер!", game.width / 2.0, game.height / 2.0 -20.0, &FontParameters {
                     size: 2 * 52,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    align_horizontal: TextAlignHorizontal::Center,
+                    ..FontParameters::default()
+                });
+                canvas.text("Для перезапуска нажмите любую клавишу", game.width / 2.0, game.height / 2.0 + 25.0, &FontParameters {
+                    size: 2 * 24,
                     color: [1.0, 1.0, 1.0, 1.0],
                     align_horizontal: TextAlignHorizontal::Center,
                     ..FontParameters::default()
@@ -820,6 +847,8 @@ impl Handler<GameContext> for WindowHandler {
                 if click {
                     game.play_sound(&SELECT);
                 }
+            }else if game.winner != Winner::None{
+                game.reset();
             }
         }
     }
