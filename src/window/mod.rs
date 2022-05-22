@@ -4,9 +4,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use glium::{Display, Frame};
 use glium::glutin::ContextBuilder;
-use glium::glutin::dpi::Size;
+use glium::glutin::dpi::{PhysicalSize, Size};
 use glium::glutin::event::{Event, ModifiersState, MouseButton, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
+use glium::glutin::platform::windows::IconExtWindows;
+use glium::glutin::window::Icon;
 use crate::{Canvas, ElementState, KeyboardInput, MouseScrollDelta, StartCause, WindowBuilder};
 use crate::font::FontManager;
 use crate::shaders::ShaderManager;
@@ -20,6 +22,7 @@ pub fn create<T, S, C, H>(title: T, inner_size: S, depth_bits: u8, mut handler: 
 {
     let event_loop = EventLoop::new();
     let wb = WindowBuilder::new()
+        .with_window_icon(Some(Icon::from_resource(1, None).unwrap()))
         .with_title(title)
         .with_resizable(false)
         .with_inner_size(inner_size);
