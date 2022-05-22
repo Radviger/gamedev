@@ -726,7 +726,7 @@ impl Handler<GameContext> for WindowHandler {
         let field_size = GRID as f32 * s;
 
         if let Some([x, y]) = game.get_grid_coordinates(s, s, field_size, field_size) {
-            if button == MouseButton::Left && state == ElementState::Pressed {
+            if button == MouseButton::Left && state == ElementState::Pressed && game.start.is_none() {
                 let mut error = !game.has_selected_ship_model() || game.player_field.has_collision(x, y, game.length, game.dir, false);
 
                 if !error {
