@@ -804,7 +804,6 @@ impl Handler<GameContext> for WindowHandler {
     fn on_keyboard_input(&mut self, game: &mut GameContext, input: KeyboardInput, modifiers: ModifiersState) {
         if let Some(key) = input.virtual_keycode {
             if game.start.is_none() {
-
                 let mut click = false;
                 if key == VirtualKeyCode::Key1 && input.state == ElementState::Pressed {
                     game.length = 1;

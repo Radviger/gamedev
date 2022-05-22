@@ -16,3 +16,6 @@ lewton = "0.10.2"
 anyhow = "1.0.55"
 rand = "*"
 uuid = { version = "1.0.0-alpha.1", features = ["v4", "serde"] }
+
+[build-dependencies]
+winres = "*"
