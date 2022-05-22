@@ -680,7 +680,7 @@ impl Handler<GameContext> for WindowHandler {
             GridSelection::None
         };
 
-        game.computer_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, enemy_selection, true);
+        game.computer_field.draw(game.width / 2.0 + s, s, canvas, game.timer, game.mouse, enemy_selection, game.winner == Winner::None);
 
         match game.winner {
             Winner::None => {
